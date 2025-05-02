@@ -127,7 +127,7 @@ class Console1Controller(ControlSurface):
                         self.log_message("Found Pro-Q 3 on track:", track.name)
                         
                         # Find parameters and set up listeners
-                        self._setup_parameters_for_device(device, track)
+                        self._setup_proq3_parameters(device)
                         
                         # Select this track to make it visible to the user
                         self.song().view.selected_track = track
@@ -146,7 +146,7 @@ class Console1Controller(ControlSurface):
                         self.log_message("Found Pro-Q 3 on return track:", track.name)
                         
                         # Find parameters and set up listeners
-                        self._setup_parameters_for_device(device, track)
+                        self._setup_proq3_parameters(device)
                         
                         # Select this track to make it visible to the user
                         self.song().view.selected_track = track
@@ -165,7 +165,7 @@ class Console1Controller(ControlSurface):
                     self.log_message("Found Pro-Q 3 on master track")
                     
                     # Find parameters and set up listeners
-                    self._setup_parameters_for_device(device, master_track)
+                    self._setup_proq3_parameters(device)
                     
                     # Select master track to make it visible to the user
                     self.song().view.selected_track = master_track
@@ -179,38 +179,14 @@ class Console1Controller(ControlSurface):
             self.log_message("Error in global device search:", str(e))
             return False
 
-    def _setup_parameters_for_device(self, device, track=None):
-        """Find all needed parameters for the device and set up listeners"""
-        self._param_refs = {}  # Reset parameter references
-        
-        # Clear all parameter listeners
-        self._remove_parameter_listeners()
-        
+    def _setup_proq3_parameters(self, device):
+        """Find all ProQ3 parameters needed and set up listeners"""
         try:
             self.debug_log("Setting up parameters for Pro-Q 3")
             
-            # Store track reference for volume control
-            if track is not None:
-                self._current_track = track
-                
-                # Set up volume parameter if needed
-                if "Volume" in self._param_cc_map and track.mixer_device and hasattr(track.mixer_device, 'volume'):
-                    volume_param = track.mixer_device.volume
-                    self._param_refs["Volume"] = volume_param
-                    current_value = volume_param.value
-                    self._current_param_values["Volume"] = current_value
-                    self.debug_log(f"Found Volume parameter, current value: {current_value}")
-                    
-                    # Send feedback to controller with current parameter value (silent)
-                    if "Volume" in self._encoders:
-                        self._send_parameter_feedback("Volume", current_value, silent=True)
-                    
-                    # Add value listener to the parameter to update when Live changes the value
-                    self._setup_parameter_listener("Volume", volume_param)
-            
             # Find all ProQ3 parameters we need
             for param_name in self._param_cc_map.keys():
-                # Skip Volume parameter as it's handled separately
+                # Skip Volume parameter as it's handled separately in _setup_track_volume
                 if param_name == "Volume":
                     continue
                     
@@ -235,13 +211,35 @@ class Console1Controller(ControlSurface):
                     self.debug_log(f"Could not find {param_name} parameter")
             
             # Log summary of found parameters
-            if self._param_refs:
-                self.log_message(f"Found {len(self._param_refs)} of {len(self._param_cc_map)} parameters")
-            else:
-                self.log_message("Could not find any required parameters")
+            found_proq3_params = sum(1 for name in self._param_refs if name != "Volume")
+            total_proq3_params = len(self._param_cc_map) - (1 if "Volume" in self._param_cc_map else 0)
+            self.log_message(f"Found {found_proq3_params} of {total_proq3_params} Pro-Q 3 parameters")
                 
         except Exception as e:
-            self.log_message("Error setting up parameters:", str(e))
+            self.log_message("Error setting up Pro-Q 3 parameters:", str(e))
+
+    def _setup_track_volume(self, track):
+        """Set up volume parameter for the specified track"""
+        try:
+            if "Volume" in self._param_cc_map and track and track.mixer_device and hasattr(track.mixer_device, 'volume'):
+                volume_param = track.mixer_device.volume
+                self._param_refs["Volume"] = volume_param
+                current_value = volume_param.value
+                self._current_param_values["Volume"] = current_value
+                self.debug_log(f"Found Volume parameter for track: {track.name}, current value: {current_value}")
+                
+                # Send feedback to controller with current parameter value (silent)
+                if "Volume" in self._encoders:
+                    self._send_parameter_feedback("Volume", current_value, silent=True)
+                
+                # Add value listener to the parameter to update when Live changes the value
+                self._setup_parameter_listener("Volume", volume_param)
+                
+                return True
+            return False
+        except Exception as e:
+            self.log_message("Error setting up track volume:", str(e))
+            return False
 
     def _setup_parameter_listener(self, param_name, param):
         """Setup a listener for parameter value changes"""
@@ -302,29 +300,23 @@ class Console1Controller(ControlSurface):
         # Clean up existing parameter listeners
         self._remove_parameter_listeners()
         
-        # Reset device and parameter references
+        # Reset device reference but keep Volume parameter separate
         self._proq3_device = None
-        self._param_refs = {}
+        
+        # Keep only the Volume parameter if it exists
+        if "Volume" in self._param_refs:
+            volume_param = self._param_refs["Volume"]
+            self._param_refs = {"Volume": volume_param}
+        else:
+            self._param_refs = {}
         
         try:
             track = self.song().view.selected_track
             self._current_track = track
             self.debug_log("Selected track:", track.name)
             
-            # Set up volume parameter if needed
-            if "Volume" in self._param_cc_map and track.mixer_device and hasattr(track.mixer_device, 'volume'):
-                volume_param = track.mixer_device.volume
-                self._param_refs["Volume"] = volume_param
-                current_value = volume_param.value
-                self._current_param_values["Volume"] = current_value
-                self.debug_log(f"Found Volume parameter, current value: {current_value}")
-                
-                # Send feedback to controller with current parameter value (silent)
-                if "Volume" in self._encoders:
-                    self._send_parameter_feedback("Volume", current_value, silent=True)
-                
-                # Add value listener to the parameter to update when Live changes the value
-                self._setup_parameter_listener("Volume", volume_param)
+            # Set up volume parameter for the new track
+            self._setup_track_volume(track)
             
             # Find Pro-Q 3 in selected track's devices
             for device in track.devices:
@@ -333,12 +325,13 @@ class Console1Controller(ControlSurface):
                     self.log_message("Found Pro-Q 3 on track:", track.name)
                     
                     # Find parameters and set up listeners
-                    self._setup_parameters_for_device(device, track)
+                    self._setup_proq3_parameters(device)
                     break
             
             if not self._proq3_device:
                 self.debug_log("Could not find Pro-Q 3 device on track:", track.name)
-                # Even if no ProQ3 exists, we still have the Volume parameter set up above
+                # Even with no ProQ3, we still have the Volume parameter set up above
+                self.log_message(f"Track volume control active for: {track.name}")
         except Exception as e:
             self.log_message("Error in track change handler:", str(e))
 
@@ -423,57 +416,66 @@ class Console1Controller(ControlSurface):
         # Skip if we're in the middle of sending feedback to avoid loops
         if self._sending_feedback:
             return
+        
+        # Handle volume separately from Pro-Q 3 parameters
+        if param_name == "Volume" and param_name in self._param_refs:
+            self._handle_parameter_change(param_name, value)
+            return
             
-        # If we have found the parameter
+        # Handle Pro-Q 3 parameters only if device exists
         if self._proq3_device and param_name in self._param_refs:
-            # Set flag to indicate the parameter change came from our controller
-            self._parameter_value_changed_from_controller = True
-            
-            # Get the parameter
-            param = self._param_refs[param_name]
-            
-            if self.EMULATE_RELATIVE_MODE:
-                # ------ RELATIVE MODE ------
-                # Determine the direction of movement
-                change_direction = self._determine_relative_change(param_name, value)
-                
-                # Skip if no change detected
-                if change_direction == 0:
-                    return
-                
-                # Get current parameter value
-                current_value = self._current_param_values[param_name]
-                
-                # Calculate the new value with the appropriate step size
-                new_value = current_value + (change_direction * self.PARAMETER_STEP_SIZE)
-                
-                # Clamp to 0.0-1.0 range
-                new_value = max(0.0, min(1.0, new_value))
-                
-                # Update our tracking value
-                self._current_param_values[param_name] = new_value
-                
-                # Log the change if debug is enabled
-                self.debug_log(f"Encoder {param_name} - Direction: {change_direction}, " + 
-                              f"Old value: {current_value:.3f}, New value: {new_value:.3f}")
-            else:
-                # ------ ABSOLUTE MODE ------
-                # Store the MIDI value
-                self._last_midi_values[param_name] = value
-                
-                # Scale the encoder value (0-127) to parameter range (0.0-1.0)
-                new_value = value / 127.0
-                
-                # Update our tracking value
-                self._current_param_values[param_name] = new_value
-                
-                # Log the change if debug is enabled
-                self.debug_log(f"Encoder {param_name} - Absolute value: {value}, Param value: {new_value:.3f}")
-            
-            # Update the parameter in Live
-            param.value = new_value
+            self._handle_parameter_change(param_name, value)
         else:
             self.debug_log(f"No Pro-Q 3 device or {param_name} parameter found")
+
+    def _handle_parameter_change(self, param_name, value):
+        """Handle parameter value changes from encoder movement"""
+        # Set flag to indicate the parameter change came from our controller
+        self._parameter_value_changed_from_controller = True
+        
+        # Get the parameter
+        param = self._param_refs[param_name]
+        
+        if self.EMULATE_RELATIVE_MODE:
+            # ------ RELATIVE MODE ------
+            # Determine the direction of movement
+            change_direction = self._determine_relative_change(param_name, value)
+            
+            # Skip if no change detected
+            if change_direction == 0:
+                return
+            
+            # Get current parameter value
+            current_value = self._current_param_values[param_name]
+            
+            # Calculate the new value with the appropriate step size
+            new_value = current_value + (change_direction * self.PARAMETER_STEP_SIZE)
+            
+            # Clamp to 0.0-1.0 range
+            new_value = max(0.0, min(1.0, new_value))
+            
+            # Update our tracking value
+            self._current_param_values[param_name] = new_value
+            
+            # Log the change if debug is enabled
+            self.debug_log(f"Encoder {param_name} - Direction: {change_direction}, " + 
+                          f"Old value: {current_value:.3f}, New value: {new_value:.3f}")
+        else:
+            # ------ ABSOLUTE MODE ------
+            # Store the MIDI value
+            self._last_midi_values[param_name] = value
+            
+            # Scale the encoder value (0-127) to parameter range (0.0-1.0)
+            new_value = value / 127.0
+            
+            # Update our tracking value
+            self._current_param_values[param_name] = new_value
+            
+            # Log the change if debug is enabled
+            self.debug_log(f"Encoder {param_name} - Absolute value: {value}, Param value: {new_value:.3f}")
+        
+        # Update the parameter in Live
+        param.value = new_value
 
     def disconnect(self):
         # Remove encoder listeners
