@@ -6,7 +6,8 @@ from _Framework.ControlSurface import ControlSurface
 from _Framework.InputControlElement import MIDI_CC_TYPE
 from _Framework.SliderElement import SliderElement
 from .ProQ3_MIDI_Map import PARAMETER_CC_MAP, MIDI_CHANNEL, ENABLE_DEBUG_LOGGING
-from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS, BUTTON_TRACK_SOLO, BUTTON_TRACK_MUTE
+from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS
+from .TrackControls_MIDI_Map import TRACK_CONTROL_MAP
 
 
 class Console1Controller(ControlSurface):
@@ -40,6 +41,7 @@ class Console1Controller(ControlSurface):
         
         # Get parameter CC map from the imported mapping file
         self._param_cc_map = PARAMETER_CC_MAP
+        self._track_control_map = TRACK_CONTROL_MAP
         
         # Parameter references - will be populated when device is found
         self._param_refs = {}
@@ -84,6 +86,7 @@ class Console1Controller(ControlSurface):
     
     def _setup_encoders(self):
         """Create encoder elements and set up listeners"""
+        # Set up ProQ3 parameter encoders
         for param_name, cc_number in self._param_cc_map.items():
             # Create a slider element for this CC number
             encoder = SliderElement(MIDI_CC_TYPE, self._midi_channel, cc_number)
@@ -96,15 +99,37 @@ class Console1Controller(ControlSurface):
             self._current_param_values[param_name] = 0.0
             
             # Add value listener with a closure to capture the parameter name
-            def create_listener(param_name=param_name):
+            def create_proq_listener(param_name=param_name):
                 def listener(value):
                     self._on_encoder_value(param_name, value)
                 return listener
             
             # Add the value listener
-            encoder.add_value_listener(create_listener())
+            encoder.add_value_listener(create_proq_listener())
             
             self.debug_log(f"Set up encoder for {param_name} on CC {cc_number}")
+        
+        # Set up track control encoders
+        for control_name, cc_number in self._track_control_map.items():
+            # Create a slider element for this CC number
+            encoder = SliderElement(MIDI_CC_TYPE, self._midi_channel, cc_number)
+            
+            # Store the encoder in our dictionary
+            self._encoders[control_name] = encoder
+            
+            # Initialize last values
+            self._last_midi_values[control_name] = -1
+            
+            # Add value listener with a closure to capture the control name
+            def create_track_listener(control_name=control_name):
+                def listener(value):
+                    self._on_encoder_value(control_name, value)
+                return listener
+            
+            # Add the value listener
+            encoder.add_value_listener(create_track_listener())
+            
+            self.debug_log(f"Set up encoder for {control_name} on CC {cc_number}")
 
     def _initial_device_setup(self):
         """Initialize device and parameter setup on script load"""
@@ -227,19 +252,13 @@ class Console1Controller(ControlSurface):
     def _setup_track_volume(self, track):
         """Set up volume parameter for the specified track"""
         try:
-            if "Volume" in self._param_cc_map and track and track.mixer_device and hasattr(track.mixer_device, 'volume'):
+            if track and track.mixer_device and hasattr(track.mixer_device, 'volume'):
                 volume_param = track.mixer_device.volume
-                self._param_refs["Volume"] = volume_param
                 current_value = volume_param.value
-                self._current_param_values["Volume"] = current_value
                 self.debug_log(f"Found Volume parameter for track: {track.name}, current value: {current_value}")
                 
                 # Send feedback to controller with current parameter value (silent)
-                if "Volume" in self._encoders:
-                    self._send_parameter_feedback("Volume", current_value, silent=True)
-                
-                # Add value listener to the parameter to update when Live changes the value
-                self._setup_parameter_listener("Volume", volume_param)
+                self._send_simple_feedback("Volume", int(current_value * 127), silent=True)
                 
                 # Setup track state listeners for solo/mute
                 self._setup_track_state_listeners(track)
@@ -392,13 +411,7 @@ class Console1Controller(ControlSurface):
         
         # Reset device reference but keep Volume parameter separate
         self._proq3_device = None
-        
-        # Keep only the Volume parameter if it exists
-        if "Volume" in self._param_refs:
-            volume_param = self._param_refs["Volume"]
-            self._param_refs = {"Volume": volume_param}
-        else:
-            self._param_refs = {}
+        self._param_refs = {}
         
         try:
             track = self.song().view.selected_track
@@ -448,6 +461,13 @@ class Console1Controller(ControlSurface):
             return
         
         try:
+            # Send Volume feedback
+            if "Volume" in self._encoders and hasattr(self._current_track.mixer_device, 'volume'):
+                volume_value = self._current_track.mixer_device.volume.value
+                midi_value = int(volume_value * 127)
+                self._send_simple_feedback("Volume", midi_value)
+                self.debug_log(f"Sent Volume feedback: {midi_value} for track: {self._current_track.name}")
+                
             # Send Solo state feedback
             if "Track Solo" in self._encoders:
                 # Solo is on = 127, off = 0
@@ -464,7 +484,7 @@ class Console1Controller(ControlSurface):
         except Exception as e:
             self.log_message(f"Error sending track state feedback: {str(e)}")
 
-    def _send_simple_feedback(self, param_name, value):
+    def _send_simple_feedback(self, param_name, value, silent=False):
         """Send a simple MIDI value as feedback to the controller"""
         if param_name not in self._encoders:
             return
@@ -481,6 +501,10 @@ class Console1Controller(ControlSurface):
             
             # Update last value to avoid ping-pong
             self._last_midi_values[param_name] = value
+            
+            # Log only if not silent and debugging is enabled
+            if not silent and self._debug_logging:
+                self.debug_log(f"Sending feedback for {param_name}, MIDI value: {value}")
             
             self._sending_feedback = False
         except Exception as e:
@@ -675,18 +699,17 @@ class Console1Controller(ControlSurface):
         if self._sending_feedback:
             return
         
-        # Handle track solo/mute
+        # Handle track controls
+        if param_name == "Volume":
+            self._handle_track_volume(value)
+            return
+        
         if param_name == "Track Solo":
             self._handle_track_solo(value)
             return
         
         if param_name == "Track Mute":
             self._handle_track_mute(value)
-            return
-        
-        # Handle volume separately from Pro-Q 3 parameters
-        if param_name == "Volume" and param_name in self._param_refs:
-            self._handle_parameter_change(param_name, value)
             return
         
         # Handle Q parameters (special buttons)
@@ -704,6 +727,45 @@ class Console1Controller(ControlSurface):
             self._handle_parameter_change(param_name, value)
         else:
             self.debug_log(f"No Pro-Q 3 device or {param_name} parameter found")
+
+    def _handle_track_volume(self, value):
+        """Handle track volume encoder events"""
+        # Only respond if we have a current track
+        if not self._current_track:
+            self.debug_log("No current track selected")
+            return
+        
+        try:
+            # Get the volume parameter from the track
+            volume_param = self._current_track.mixer_device.volume
+            
+            # For volume, we want to use absolute or relative mode based on the global setting
+            if self.EMULATE_RELATIVE_MODE:
+                # Relative mode (stepped)
+                change_direction = self._determine_relative_change("Volume", value)
+                if change_direction == 0:
+                    return
+                
+                # Get current volume
+                current_value = volume_param.value
+                
+                # Calculate new value
+                new_value = current_value + (change_direction * self.PARAMETER_STEP_SIZE)
+                new_value = max(0.0, min(1.0, new_value))
+                
+                self.debug_log(f"Track Volume - Direction: {change_direction}, " + 
+                               f"Old: {current_value:.3f}, New: {new_value:.3f}")
+            else:
+                # Absolute mode (0-127)
+                self._last_midi_values["Volume"] = value
+                new_value = value / 127.0
+                self.debug_log(f"Track Volume - Absolute: {value}, Value: {new_value:.3f}")
+            
+            # Update the parameter in Live
+            self._parameter_value_changed_from_controller = True
+            volume_param.value = new_value
+        except Exception as e:
+            self.log_message(f"Error adjusting track volume: {str(e)}")
 
     def _handle_parameter_change(self, param_name, value):
         """Handle parameter value changes from encoder movement"""
@@ -1193,9 +1255,9 @@ class Console1Controller(ControlSurface):
         ControlSurface.disconnect(self)
 
     def _log_shape_mappings(self):
-        """Log the shape and Q button mappings for debugging purposes"""
+        """Log the shape, Q button and track control mappings for debugging purposes"""
         # Import for local use to avoid circular imports
-        from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS, BUTTON_TRACK_SOLO, BUTTON_TRACK_MUTE
+        from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS
         
         self.log_message("------ Console1 Control Mappings ------")
         self.log_message("MIDI-to-ProQ3 Shape Mappings:")
@@ -1220,8 +1282,8 @@ class Console1Controller(ControlSurface):
         
         # Track control button mappings
         self.log_message("Track Control Button Mappings:")
-        self.log_message(f"- CC {BUTTON_TRACK_SOLO} → Track Solo")
-        self.log_message(f"- CC {BUTTON_TRACK_MUTE} → Track Mute")
+        for control_name, cc_number in self._track_control_map.items():
+            self.log_message(f"- CC {cc_number} → {control_name}")
         
         self.log_message("-----------------------------------")
 
