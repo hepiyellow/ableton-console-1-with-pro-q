@@ -12,6 +12,9 @@ class Console1Controller(ControlSurface):
 
     _active_instances = []
     
+    # Mode settings
+    EMULATE_RELATIVE_MODE = False  # False = absolute mode (0-127), True = relative mode (fixed steps)
+    
     # Relative movement settings
     PARAMETER_STEP_SIZE = 0.01  # 1% change per encoder step
     FINE_STEP_SIZE = 0.001      # 0.1% change for fine control (not currently used)
@@ -60,6 +63,9 @@ class Console1Controller(ControlSurface):
             # Schedule the initial device setup to run after Live has fully loaded
             self.schedule_message(1, self._initial_device_setup)
             
+            # Log the mode we're in
+            mode_str = "relative (stepped)" if self.EMULATE_RELATIVE_MODE else "absolute (0-127)"
+            self.log_message(f"Console1Controller: Encoder mode set to {mode_str}")
             self.log_message("Console1Controller: Setup complete, listening for encoder messages")
     
     def debug_log(self, *message):
@@ -367,41 +373,58 @@ class Console1Controller(ControlSurface):
         return 0
 
     def _on_encoder_value(self, param_name, value):
-        """Called when an encoder is turned, handling as relative movements"""
+        """Called when an encoder is turned, handling according to mode setting"""
         # Skip if we're in the middle of sending feedback to avoid loops
         if self._sending_feedback:
             return
             
         # If we have found the parameter
         if self._proq3_device and param_name in self._param_refs:
-            # Determine the direction of movement
-            change_direction = self._determine_relative_change(param_name, value)
-            
-            # Skip if no change detected
-            if change_direction == 0:
-                return
-            
             # Set flag to indicate the parameter change came from our controller
             self._parameter_value_changed_from_controller = True
             
-            # Get the parameter and its current value
+            # Get the parameter
             param = self._param_refs[param_name]
-            current_value = self._current_param_values[param_name]
             
-            # Calculate the new value with the appropriate step size
-            new_value = current_value + (change_direction * self.PARAMETER_STEP_SIZE)
+            if self.EMULATE_RELATIVE_MODE:
+                # ------ RELATIVE MODE ------
+                # Determine the direction of movement
+                change_direction = self._determine_relative_change(param_name, value)
+                
+                # Skip if no change detected
+                if change_direction == 0:
+                    return
+                
+                # Get current parameter value
+                current_value = self._current_param_values[param_name]
+                
+                # Calculate the new value with the appropriate step size
+                new_value = current_value + (change_direction * self.PARAMETER_STEP_SIZE)
+                
+                # Clamp to 0.0-1.0 range
+                new_value = max(0.0, min(1.0, new_value))
+                
+                # Update our tracking value
+                self._current_param_values[param_name] = new_value
+                
+                # Log the change if debug is enabled
+                self.debug_log(f"Encoder {param_name} - Direction: {change_direction}, " + 
+                              f"Old value: {current_value:.3f}, New value: {new_value:.3f}")
+            else:
+                # ------ ABSOLUTE MODE ------
+                # Store the MIDI value
+                self._last_midi_values[param_name] = value
+                
+                # Scale the encoder value (0-127) to parameter range (0.0-1.0)
+                new_value = value / 127.0
+                
+                # Update our tracking value
+                self._current_param_values[param_name] = new_value
+                
+                # Log the change if debug is enabled
+                self.debug_log(f"Encoder {param_name} - Absolute value: {value}, Param value: {new_value:.3f}")
             
-            # Clamp to 0.0-1.0 range
-            new_value = max(0.0, min(1.0, new_value))
-            
-            # Update our tracking value
-            self._current_param_values[param_name] = new_value
-            
-            # Log the change if debug is enabled
-            self.debug_log(f"Encoder {param_name} - Direction: {change_direction}, " + 
-                          f"Old value: {current_value:.3f}, New value: {new_value:.3f}")
-            
-            # Update the parameter
+            # Update the parameter in Live
             param.value = new_value
         else:
             self.debug_log(f"No Pro-Q 3 device or {param_name} parameter found")
