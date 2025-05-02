@@ -48,6 +48,10 @@ PARAMETER_CC_MAP = {
     # Device control
     "Device On": BUTTON_EQ_BYPASS,  # EQ Bypass button controls Pro-Q3 Device On
     
+    # Track controls
+    "Track Solo": BUTTON_TRACK_SOLO,
+    "Track Mute": BUTTON_TRACK_MUTE,
+    
     # Additional parameters that could be mapped
     # Uncomment to enable these mappings
     # "Band 2 Q": KNOB_EQ1_Q,

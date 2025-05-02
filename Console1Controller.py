@@ -6,7 +6,7 @@ from _Framework.ControlSurface import ControlSurface
 from _Framework.InputControlElement import MIDI_CC_TYPE
 from _Framework.SliderElement import SliderElement
 from .ProQ3_MIDI_Map import PARAMETER_CC_MAP, MIDI_CHANNEL, ENABLE_DEBUG_LOGGING
-from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS
+from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS, BUTTON_TRACK_SOLO, BUTTON_TRACK_MUTE
 
 
 class Console1Controller(ControlSurface):
@@ -241,11 +241,92 @@ class Console1Controller(ControlSurface):
                 # Add value listener to the parameter to update when Live changes the value
                 self._setup_parameter_listener("Volume", volume_param)
                 
+                # Setup track state listeners for solo/mute
+                self._setup_track_state_listeners(track)
+                
                 return True
             return False
         except Exception as e:
             self.log_message("Error setting up track volume:", str(e))
             return False
+
+    def _setup_track_state_listeners(self, track):
+        """Set up listeners for track state changes (solo/mute)"""
+        try:
+            # Add solo listener
+            if hasattr(track, 'add_solo_listener'):
+                track.add_solo_listener(self._on_track_solo_changed)
+                self.debug_log(f"Added solo listener to track: {track.name}")
+                
+            # Add mute listener
+            if hasattr(track, 'add_mute_listener'):
+                track.add_mute_listener(self._on_track_mute_changed)
+                self.debug_log(f"Added mute listener to track: {track.name}")
+                
+            # Store reference to know which track has listeners
+            self._track_with_listeners = track
+                
+        except Exception as e:
+            self.log_message(f"Error setting up track state listeners: {str(e)}")
+
+    def _remove_track_state_listeners(self):
+        """Remove track state listeners from previous track"""
+        if hasattr(self, '_track_with_listeners') and self._track_with_listeners:
+            try:
+                track = self._track_with_listeners
+                
+                # Remove solo listener
+                if hasattr(track, 'remove_solo_listener'):
+                    try:
+                        track.remove_solo_listener(self._on_track_solo_changed)
+                        self.debug_log(f"Removed solo listener from track: {track.name}")
+                    except:
+                        pass
+                    
+                # Remove mute listener
+                if hasattr(track, 'remove_mute_listener'):
+                    try:
+                        track.remove_mute_listener(self._on_track_mute_changed)
+                        self.debug_log(f"Removed mute listener from track: {track.name}")
+                    except:
+                        pass
+                    
+                self._track_with_listeners = None
+                
+            except Exception as e:
+                self.log_message(f"Error removing track state listeners: {str(e)}")
+
+    def _on_track_solo_changed(self):
+        """Called when the solo state of the current track changes in Live"""
+        if not self._current_track:
+            return
+        
+        # Send feedback for the new solo state
+        try:
+            solo_state = self._current_track.solo
+            self.debug_log(f"Track solo changed to: {solo_state} for track: {self._current_track.name}")
+            
+            # Send feedback to the controller
+            feedback_value = 127 if solo_state else 0
+            self._send_simple_feedback("Track Solo", feedback_value)
+        except Exception as e:
+            self.log_message(f"Error handling solo change: {str(e)}")
+
+    def _on_track_mute_changed(self):
+        """Called when the mute state of the current track changes in Live"""
+        if not self._current_track:
+            return
+        
+        # Send feedback for the new mute state
+        try:
+            mute_state = self._current_track.mute
+            self.debug_log(f"Track mute changed to: {mute_state} for track: {self._current_track.name}")
+            
+            # Send feedback to the controller
+            feedback_value = 127 if mute_state else 0
+            self._send_simple_feedback("Track Mute", feedback_value)
+        except Exception as e:
+            self.log_message(f"Error handling mute change: {str(e)}")
 
     def _setup_parameter_listener(self, param_name, param):
         """Setup a listener for parameter value changes"""
@@ -306,6 +387,9 @@ class Console1Controller(ControlSurface):
         # Clean up existing parameter listeners
         self._remove_parameter_listeners()
         
+        # Remove track state listeners from previous track
+        self._remove_track_state_listeners()
+        
         # Reset device reference but keep Volume parameter separate
         self._proq3_device = None
         
@@ -323,6 +407,10 @@ class Console1Controller(ControlSurface):
             
             # Set up volume parameter for the new track
             self._setup_track_volume(track)
+            
+            # Explicitly send feedback for track state (solo/mute)
+            # This ensures the controller LEDs update when changing tracks
+            self._send_track_state_feedback()
             
             # Find Pro-Q 3 in selected track's devices (direct or in racks)
             proq3_found = False
@@ -353,6 +441,51 @@ class Console1Controller(ControlSurface):
                 self.log_message(f"Track volume control active for: {track.name}")
         except Exception as e:
             self.log_message("Error in track change handler:", str(e))
+
+    def _send_track_state_feedback(self):
+        """Send feedback to the controller for track state (solo/mute)"""
+        if not self._current_track:
+            return
+        
+        try:
+            # Send Solo state feedback
+            if "Track Solo" in self._encoders:
+                # Solo is on = 127, off = 0
+                solo_value = 127 if self._current_track.solo else 0
+                self._send_simple_feedback("Track Solo", solo_value)
+                self.debug_log(f"Sent Solo feedback: {solo_value} for track: {self._current_track.name}")
+                
+            # Send Mute state feedback
+            if "Track Mute" in self._encoders:
+                # Mute is on = 127, off = 0
+                mute_value = 127 if self._current_track.mute else 0
+                self._send_simple_feedback("Track Mute", mute_value)
+                self.debug_log(f"Sent Mute feedback: {mute_value} for track: {self._current_track.name}")
+        except Exception as e:
+            self.log_message(f"Error sending track state feedback: {str(e)}")
+
+    def _send_simple_feedback(self, param_name, value):
+        """Send a simple MIDI value as feedback to the controller"""
+        if param_name not in self._encoders:
+            return
+        
+        try:
+            # Prevent feedback loops
+            if self._sending_feedback:
+                return
+            
+            self._sending_feedback = True
+            
+            # Send the value to the controller
+            self._encoders[param_name].send_value(value)
+            
+            # Update last value to avoid ping-pong
+            self._last_midi_values[param_name] = value
+            
+            self._sending_feedback = False
+        except Exception as e:
+            self._sending_feedback = False
+            self.log_message(f"Error sending feedback for {param_name}:", str(e))
 
     def _on_param_value_changed(self, param_name):
         """Called when a parameter value changes in Live"""
@@ -540,6 +673,15 @@ class Console1Controller(ControlSurface):
         """Called when an encoder is turned, handling according to mode setting"""
         # Skip if we're in the middle of sending feedback to avoid loops
         if self._sending_feedback:
+            return
+        
+        # Handle track solo/mute
+        if param_name == "Track Solo":
+            self._handle_track_solo(value)
+            return
+        
+        if param_name == "Track Mute":
+            self._handle_track_mute(value)
             return
         
         # Handle volume separately from Pro-Q 3 parameters
@@ -805,6 +947,102 @@ class Console1Controller(ControlSurface):
         self._parameter_value_changed_from_controller = True
         param.value = new_value
 
+    def _handle_track_solo(self, value):
+        """Handle track solo button events"""
+        # Log the incoming MIDI value for debugging
+        self.log_message(f"RECEIVED: Track Solo value {value}")
+        
+        # Only respond if we have a current track
+        if not self._current_track:
+            self.log_message("No current track selected")
+            return
+        
+        # Since the hardware alternates values like the bypass button,
+        # we'll only toggle on a value change, not on specific values
+        last_value = self._last_midi_values.get("Track Solo", -1)
+        
+        # Store the current value
+        self._last_midi_values["Track Solo"] = value
+        
+        # Debounce to prevent multiple toggles
+        current_time = time.time()
+        last_time = getattr(self, '_last_solo_time', 0)
+        self._last_solo_time = current_time
+        
+        # Ignore events too close together (within 300ms)
+        if current_time - last_time < 0.3:
+            self.log_message(f"Ignoring solo event - too soon after previous event")
+            return
+        
+        # Only process if the value is different from the last one
+        if value == last_value:
+            self.log_message(f"Ignoring duplicate solo value {value}")
+            return
+        
+        # Toggle the track's solo state
+        try:
+            current_state = self._current_track.solo
+            new_state = not current_state
+            self._current_track.solo = new_state
+            
+            # Log the state change
+            state_str = "ON" if new_state else "OFF"
+            self.log_message(f"TOGGLING Track Solo to {state_str} for track: {self._current_track.name}")
+            
+            # Send feedback to the controller
+            feedback_value = 127 if new_state else 0
+            self._send_simple_feedback("Track Solo", feedback_value)
+        except Exception as e:
+            self.log_message(f"Error toggling track solo: {str(e)}")
+
+    def _handle_track_mute(self, value):
+        """Handle track mute button events"""
+        # Log the incoming MIDI value for debugging
+        self.log_message(f"RECEIVED: Track Mute value {value}")
+        
+        # Only respond if we have a current track
+        if not self._current_track:
+            self.log_message("No current track selected")
+            return
+        
+        # Since the hardware alternates values like the bypass button,
+        # we'll only toggle on a value change, not on specific values
+        last_value = self._last_midi_values.get("Track Mute", -1)
+        
+        # Store the current value
+        self._last_midi_values["Track Mute"] = value
+        
+        # Debounce to prevent multiple toggles
+        current_time = time.time()
+        last_time = getattr(self, '_last_mute_time', 0)
+        self._last_mute_time = current_time
+        
+        # Ignore events too close together (within 300ms)
+        if current_time - last_time < 0.3:
+            self.log_message(f"Ignoring mute event - too soon after previous event")
+            return
+        
+        # Only process if the value is different from the last one
+        if value == last_value:
+            self.log_message(f"Ignoring duplicate mute value {value}")
+            return
+        
+        # Toggle the track's mute state
+        try:
+            current_state = self._current_track.mute
+            new_state = not current_state
+            self._current_track.mute = new_state
+            
+            # Log the state change
+            state_str = "ON" if new_state else "OFF"
+            self.log_message(f"TOGGLING Track Mute to {state_str} for track: {self._current_track.name}")
+            
+            # Send feedback to the controller
+            feedback_value = 127 if new_state else 0
+            self._send_simple_feedback("Track Mute", feedback_value)
+        except Exception as e:
+            self.log_message(f"Error toggling track mute: {str(e)}")
+
     def _setup_device_listeners(self):
         """Setup device listeners for all tracks to detect when Pro-Q 3 is added"""
         try:
@@ -941,6 +1179,9 @@ class Console1Controller(ControlSurface):
         # Remove device listeners
         self._remove_device_listeners()
         
+        # Remove track state listeners
+        self._remove_track_state_listeners()
+        
         # Remove track change listener
         try:
             if self._has_track_listener:
@@ -954,7 +1195,7 @@ class Console1Controller(ControlSurface):
     def _log_shape_mappings(self):
         """Log the shape and Q button mappings for debugging purposes"""
         # Import for local use to avoid circular imports
-        from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS
+        from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS, BUTTON_TRACK_SOLO, BUTTON_TRACK_MUTE
         
         self.log_message("------ Console1 Control Mappings ------")
         self.log_message("MIDI-to-ProQ3 Shape Mappings:")
@@ -976,6 +1217,12 @@ class Console1Controller(ControlSurface):
         # Bypass button mapping
         self.log_message("Bypass Button Mapping:")
         self.log_message(f"- CC {BUTTON_EQ_BYPASS} → Device On/Bypass")
+        
+        # Track control button mappings
+        self.log_message("Track Control Button Mappings:")
+        self.log_message(f"- CC {BUTTON_TRACK_SOLO} → Track Solo")
+        self.log_message(f"- CC {BUTTON_TRACK_MUTE} → Track Mute")
+        
         self.log_message("-----------------------------------")
 
     def _delayed_proq3_search(self):

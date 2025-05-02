@@ -44,6 +44,11 @@ BUTTON_EQ3_Q = 87  # Band 3 Q (maps to Pro-Q3 Band 4 Q)
 # ----------------------
 BUTTON_EQ_BYPASS = 80  # EQ Bypass button (maps to Pro-Q3 Device On)
 
+# Track Control Buttons
+# --------------------
+BUTTON_TRACK_SOLO = 13  # Track Solo button
+BUTTON_TRACK_MUTE = 12  # Track Mute button
+
 # Shape value definitions
 SHAPE_SHELF = 0
 SHAPE_BELL = 63
@@ -71,6 +76,9 @@ CONTROL_NAMES = {
     BUTTON_EQ3_Q: "EQ Band 3 Q",
     
     BUTTON_EQ_BYPASS: "EQ Bypass",
+    
+    BUTTON_TRACK_SOLO: "Track Solo",
+    BUTTON_TRACK_MUTE: "Track Mute",
     
     KNOB_GAIN: "Gain",
     KNOB_VOLUME: "Volume"
