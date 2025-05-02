@@ -33,6 +33,9 @@ PARAMETER_CC_MAP = {
     "Band 4 Gain": KNOB_EQ3_GAIN,
     "Band 5 Gain": KNOB_EQ4_GAIN,
     
+    # Global parameters
+    "Gain Scale": KNOB_GAIN_SCALE,
+    
     # Additional parameters that could be mapped
     # Uncomment to enable these mappings
     # "Band 2 Q": KNOB_EQ1_Q,
