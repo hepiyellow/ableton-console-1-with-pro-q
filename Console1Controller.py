@@ -4,6 +4,7 @@ import Live
 from _Framework.ControlSurface import ControlSurface
 from _Framework.InputControlElement import MIDI_CC_TYPE
 from _Framework.SliderElement import SliderElement
+from .ProQ3_MIDI_Map import PARAMETER_CC_MAP, MIDI_CHANNEL, ENABLE_DEBUG_LOGGING
 
 
 class Console1Controller(ControlSurface):
@@ -25,19 +26,10 @@ class Console1Controller(ControlSurface):
         self._sending_feedback = False  # Flag to prevent feedback loops
         self._has_param_listener = False  # Track if parameter listener is connected
         self._parameter_value_changed_from_controller = False  # Flag to track source of value changes
+        self._debug_logging = ENABLE_DEBUG_LOGGING
         
-        # Encoder mappings - CC numbers for each parameter
-        self._param_cc_map = {
-            # Format: (parameter_name, cc_number)
-            "Band 1 Frequency": 92,
-            "Band 2 Frequency": 89,
-            "Band 3 Frequency": 86,
-            "Band 4 Frequency": 83,
-            "Band 1 Gain": 91,
-            "Band 2 Gain": 88,
-            "Band 3 Gain": 85,
-            "Band 4 Gain": 82
-        }
+        # Get parameter CC map from the imported mapping file
+        self._param_cc_map = PARAMETER_CC_MAP
         
         # Parameter references - will be populated when device is found
         self._param_refs = {}
@@ -49,8 +41,8 @@ class Console1Controller(ControlSurface):
         self._last_values = {}
         
         with self.component_guard():
-            # Define the MIDI channel to listen on (0-15)
-            self._midi_channel = 0
+            # Define the MIDI channel to listen on (from mapping file)
+            self._midi_channel = MIDI_CHANNEL
             
             # Create encoders and set up listeners
             self._setup_encoders()
@@ -62,6 +54,11 @@ class Console1Controller(ControlSurface):
             self.schedule_message(1, self._initial_device_setup)
             
             self.log_message("Console1Controller: Setup complete, listening for encoder messages")
+    
+    def debug_log(self, *message):
+        """Log message only if debug logging is enabled"""
+        if self._debug_logging:
+            self.log_message(*message)
     
     def _setup_encoders(self):
         """Create encoder elements and set up listeners"""
@@ -84,18 +81,18 @@ class Console1Controller(ControlSurface):
             # Add the value listener
             encoder.add_value_listener(create_listener())
             
-            self.log_message(f"Set up encoder for {param_name} on CC {cc_number}")
+            self.debug_log(f"Set up encoder for {param_name} on CC {cc_number}")
 
     def _initial_device_setup(self):
         """Initialize device and parameter setup on script load"""
-        self.log_message("Running initial device setup")
+        self.debug_log("Running initial device setup")
         
         # First check the currently selected track
         self._on_selected_track_changed()
         
         # If we didn't find the device on the selected track, search all tracks
         if not self._proq3_device:
-            self.log_message("Pro-Q 3 not found on selected track, searching all tracks")
+            self.debug_log("Pro-Q 3 not found on selected track, searching all tracks")
             self._find_proq3_on_any_track()
 
     def _find_proq3_on_any_track(self):
@@ -103,7 +100,7 @@ class Console1Controller(ControlSurface):
         try:
             # Look through all tracks in the session
             for track_index, track in enumerate(self.song().tracks):
-                self.log_message("Checking track:", track.name)
+                self.debug_log("Checking track:", track.name)
                 
                 # Find Pro-Q 3 in track's devices
                 for device in track.devices:
@@ -121,7 +118,7 @@ class Console1Controller(ControlSurface):
                 
             # Also search return tracks
             for track in self.song().return_tracks:
-                self.log_message("Checking return track:", track.name)
+                self.debug_log("Checking return track:", track.name)
                 
                 # Find Pro-Q 3 in track's devices
                 for device in track.devices:
@@ -139,7 +136,7 @@ class Console1Controller(ControlSurface):
             
             # Check master track
             master_track = self.song().master_track
-            self.log_message("Checking master track")
+            self.debug_log("Checking master track")
             
             # Find Pro-Q 3 in master track's devices
             for device in master_track.devices:
@@ -170,7 +167,7 @@ class Console1Controller(ControlSurface):
         self._remove_parameter_listeners()
         
         try:
-            self.log_message("Setting up parameters for Pro-Q 3")
+            self.debug_log("Setting up parameters for Pro-Q 3")
             
             # Find all parameters we need
             for param_name in self._param_cc_map.keys():
@@ -178,7 +175,7 @@ class Console1Controller(ControlSurface):
                     if param.name == param_name:
                         self._param_refs[param_name] = param
                         current_value = param.value
-                        self.log_message(f"Found {param_name} parameter, current value: {current_value}")
+                        self.debug_log(f"Found {param_name} parameter, current value: {current_value}")
                         
                         # Send feedback to controller with current parameter value (silent)
                         if param_name in self._encoders:
@@ -191,7 +188,7 @@ class Console1Controller(ControlSurface):
                 
                 # Check if we found the parameter
                 if param_name not in self._param_refs:
-                    self.log_message(f"Could not find {param_name} parameter")
+                    self.debug_log(f"Could not find {param_name} parameter")
             
             # Log summary of found parameters
             if self._param_refs:
@@ -221,7 +218,7 @@ class Console1Controller(ControlSurface):
                     self._param_listeners = {}
                 self._param_listeners[param_name] = (param, listener)
                 
-                self.log_message(f"Added value listener to {param_name}")
+                self.debug_log(f"Added value listener to {param_name}")
             except Exception as e:
                 self.log_message(f"Error adding parameter listener to {param_name}:", str(e))
 
@@ -232,12 +229,12 @@ class Console1Controller(ControlSurface):
             if self._has_track_listener:
                 self.song().view.remove_selected_track_listener(self._on_selected_track_changed)
                 self._has_track_listener = False
-                self.log_message("Removed existing track listener")
+                self.debug_log("Removed existing track listener")
                 
             # Now add the listener
             self.song().view.add_selected_track_listener(self._on_selected_track_changed)
             self._has_track_listener = True
-            self.log_message("Added track listener")
+            self.debug_log("Added track listener")
             
         except Exception as e:
             self.log_message("Error setting up track listener:", str(e))
@@ -249,10 +246,10 @@ class Console1Controller(ControlSurface):
                 for param_name, (param, listener) in self._param_listeners.items():
                     if param and hasattr(param, 'remove_value_listener'):
                         param.remove_value_listener(listener)
-                        self.log_message(f"Removed listener for {param_name}")
+                        self.debug_log(f"Removed listener for {param_name}")
                 
                 self._param_listeners = {}
-                self.log_message("Removed all parameter listeners")
+                self.debug_log("Removed all parameter listeners")
         except Exception as e:
             self.log_message("Error removing parameter listeners:", str(e))
 
@@ -267,7 +264,7 @@ class Console1Controller(ControlSurface):
         
         try:
             track = self.song().view.selected_track
-            self.log_message("Selected track:", track.name)
+            self.debug_log("Selected track:", track.name)
             
             # Find Pro-Q 3 in selected track's devices
             for device in track.devices:
@@ -280,7 +277,7 @@ class Console1Controller(ControlSurface):
                     break
             
             if not self._proq3_device:
-                self.log_message("Could not find Pro-Q 3 device on track:", track.name)
+                self.debug_log("Could not find Pro-Q 3 device on track:", track.name)
         except Exception as e:
             self.log_message("Error in track change handler:", str(e))
 
@@ -313,9 +310,9 @@ class Console1Controller(ControlSurface):
             # Convert parameter value (0.0-1.0) to MIDI value (0-127)
             midi_value = int(param_value * 127)
             
-            # Log message only if not silent
-            if not silent:
-                self.log_message(f"Sending feedback for {param_name}, MIDI value: {midi_value}")
+            # Log message only if not silent and debug logging is enabled
+            if not silent and self._debug_logging:
+                self.debug_log(f"Sending feedback for {param_name}, MIDI value: {midi_value}")
             
             # Send the value back to the controller
             self._encoders[param_name].send_value(midi_value)
@@ -357,7 +354,7 @@ class Console1Controller(ControlSurface):
             # Update the parameter
             param.value = param_value
         else:
-            self.log_message(f"No Pro-Q 3 device or {param_name} parameter found")
+            self.debug_log(f"No Pro-Q 3 device or {param_name} parameter found")
 
     def disconnect(self):
         # Remove encoder listeners
