@@ -8,6 +8,8 @@ This script enables comprehensive control over Pro-Q 3 parameters and track func
 
 **Note: This entire script was AI-generated.**
 
+**Testing: This script has been tested on Ableton Live 11.**
+
 **Warning: This script is currently in development and has not been extensively tested. Use at your own risk.**
 
 ## Requirements
@@ -81,8 +83,11 @@ For EQ Bands 2-5:
 - **Shape Buttons**: Toggle between Shelf, Bell, and Cut modes
   - Band 2: Low Shelf, Bell, Low Cut
   - Band 5: High Shelf, Bell, High Cut
-- **Q Buttons**: Cycle between Wide, Medium, and Narrow Q settings
-  - For Bands 3 and 4
+- **Q Controls**: Provide continuous adjustment of Q parameters
+  - Hardware Band 2 Q button (CC 90) controls Pro-Q Band 3 Q
+  - Hardware Band 3 Q button (CC 87) controls Pro-Q Band 4 Q
+  - Hardware Band 1 Q knob (CC 94) controls Pro-Q Band 2 Q
+  - Hardware Band 4 Q knob (CC 84) controls Pro-Q Band 5 Q
 
 ### Track Controls
 
