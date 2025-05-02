@@ -1,11 +1,12 @@
 from __future__ import with_statement
 
 import Live
+import time
 from _Framework.ControlSurface import ControlSurface
 from _Framework.InputControlElement import MIDI_CC_TYPE
 from _Framework.SliderElement import SliderElement
 from .ProQ3_MIDI_Map import PARAMETER_CC_MAP, MIDI_CHANNEL, ENABLE_DEBUG_LOGGING
-from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT
+from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS
 
 
 class Console1Controller(ControlSurface):
@@ -466,8 +467,6 @@ class Console1Controller(ControlSurface):
         # High Shelf = 3.0 (for Band 5)
         # High Cut = 4.0 (for Band 5)
         
-        from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT
-        
         # Debug the incoming value
         self.log_message(f"TRANSLATING: {param_name} with value {param_value} to MIDI")
         
@@ -547,6 +546,11 @@ class Console1Controller(ControlSurface):
         # Handle Q parameters (special buttons)
         if "Q" in param_name and param_name in self._param_refs:
             self._handle_q_parameter(param_name, value)
+            return
+        
+        # Handle Device On parameter (Bypass button)
+        if param_name == "Device On" and param_name in self._param_refs:
+            self._handle_bypass_parameter(param_name, value)
             return
         
         # Handle Pro-Q 3 parameters only if device exists
@@ -746,6 +750,57 @@ class Console1Controller(ControlSurface):
         self._parameter_value_changed_from_controller = True
         param.value = new_value
 
+    def _handle_bypass_parameter(self, param_name, value):
+        """Special handling for the Device On (bypass) parameter"""
+        # Log the incoming MIDI value for debugging
+        self.log_message(f"RECEIVED: {param_name} MIDI value {value}")
+        
+        # For this specific hardware, the button alternates between sending 127 and 0
+        # But we want to toggle on every button press, regardless of the value
+        
+        # Store timestamp to prevent rapid repeated toggles (debouncing)
+        # Use our own simple timestamp instead of Live.Base.Time
+        current_time = time.time()
+        last_time = getattr(self, '_last_bypass_time', 0)
+        self._last_bypass_time = current_time
+        
+        # Implement debouncing - ignore events too close together (within 300ms)
+        if current_time - last_time < 0.3:
+            self.log_message(f"Ignoring bypass event - too soon after previous event")
+            return
+        
+        # Since the hardware alternates between 127 and 0, we need to make sure
+        # the incoming value is different from the last one to avoid double-triggers
+        last_value = self._last_midi_values.get(param_name, -1)
+        
+        # Only process if the value is different from the last one we received
+        if value == last_value:
+            self.log_message(f"Ignoring duplicate bypass value {value}")
+            return
+        
+        # Update the last value
+        self._last_midi_values[param_name] = value
+        
+        # Get the parameter
+        param = self._param_refs[param_name]
+        
+        # Get current state (1.0 = on, 0.0 = off/bypassed)
+        current_value = self._current_param_values[param_name]
+        
+        # Toggle the bypass state
+        new_value = 0.0 if current_value > 0.5 else 1.0
+        
+        # Update our tracking value
+        self._current_param_values[param_name] = new_value
+        
+        # Log the state change
+        state_label = "ON" if new_value > 0.5 else "BYPASSED"
+        self.log_message(f"TOGGLING {param_name} to {state_label} (Value: {new_value})")
+        
+        # Update the parameter in Live
+        self._parameter_value_changed_from_controller = True
+        param.value = new_value
+
     def disconnect(self):
         # Remove encoder listeners
         for param_name, encoder in self._encoders.items():
@@ -770,6 +825,9 @@ class Console1Controller(ControlSurface):
 
     def _log_shape_mappings(self):
         """Log the shape and Q button mappings for debugging purposes"""
+        # Import for local use to avoid circular imports
+        from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS
+        
         self.log_message("------ Console1 Control Mappings ------")
         self.log_message("MIDI-to-ProQ3 Shape Mappings:")
         self.log_message("Band 2:")
@@ -786,4 +844,8 @@ class Console1Controller(ControlSurface):
         self.log_message("- CC 90 → Band 3 Q")
         self.log_message("- CC 87 → Band 4 Q")
         self.log_message("- Q Values: 0.1 (Wide), 0.5 (Medium), 1.0 (Narrow)")
+        
+        # Bypass button mapping
+        self.log_message("Bypass Button Mapping:")
+        self.log_message(f"- CC {BUTTON_EQ_BYPASS} → Device On/Bypass")
         self.log_message("-----------------------------------")

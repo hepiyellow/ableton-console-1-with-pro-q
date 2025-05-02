@@ -40,6 +40,10 @@ BUTTON_EQ4_SHAPE = 65  # Band 4 Shape (maps to Pro-Q3 Band 5 Shape)
 BUTTON_EQ2_Q = 90  # Band 2 Q (maps to Pro-Q3 Band 3 Q)
 BUTTON_EQ3_Q = 87  # Band 3 Q (maps to Pro-Q3 Band 4 Q)
 
+# Bypass Button Definition
+# ----------------------
+BUTTON_EQ_BYPASS = 80  # EQ Bypass button (maps to Pro-Q3 Device On)
+
 # Shape value definitions
 SHAPE_SHELF = 0
 SHAPE_BELL = 63
@@ -65,6 +69,8 @@ CONTROL_NAMES = {
     
     BUTTON_EQ2_Q: "EQ Band 2 Q",
     BUTTON_EQ3_Q: "EQ Band 3 Q",
+    
+    BUTTON_EQ_BYPASS: "EQ Bypass",
     
     KNOB_GAIN: "Gain",
     KNOB_VOLUME: "Volume"

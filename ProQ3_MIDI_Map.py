@@ -45,6 +45,9 @@ PARAMETER_CC_MAP = {
     "Output Level": KNOB_GAIN,
     "Volume": KNOB_VOLUME,
     
+    # Device control
+    "Device On": BUTTON_EQ_BYPASS,  # EQ Bypass button controls Pro-Q3 Device On
+    
     # Additional parameters that could be mapped
     # Uncomment to enable these mappings
     # "Band 2 Q": KNOB_EQ1_Q,
