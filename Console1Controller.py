@@ -7,7 +7,7 @@ from _Framework.SliderElement import SliderElement
 
 
 class Console1Controller(ControlSurface):
-    __doc__ = " Console1Controller script that listens to MIDI CC 92 encoder with absolute values "
+    __doc__ = " Console1Controller script that controls Pro-Q 3 Band 1 Frequency with CC 92 "
 
     _active_instances = []
 
@@ -18,6 +18,11 @@ class Console1Controller(ControlSurface):
     def __init__(self, c_instance):
         ControlSurface.__init__(self, c_instance)
         self.log_message("Console1Controller: Loaded successfully!")
+        
+        # Store Pro-Q 3 device and parameter references
+        self._proq3_device = None
+        self._band1_freq_param = None
+        self._has_track_listener = False
         
         with self.component_guard():
             # Define the MIDI channel to listen on (0-15)
@@ -32,12 +37,63 @@ class Console1Controller(ControlSurface):
             # Keep track of the last value to detect changes
             self._last_cc92_value = -1
             
+            # Safely add track change listener
+            self._setup_track_listener()
+            
             self.log_message("Console1Controller: Listening for CC 92 encoder on channel", self._midi_channel + 1)
 
-    def _on_cc92_value(self, value):
-        # This function is called whenever CC 92 value changes
-        # Since this encoder sends absolute values, value will be 0-127
+    def _setup_track_listener(self):
+        """Setup the track selection listener safely"""
+        try:
+            # First try to remove the listener if it exists
+            if self._has_track_listener:
+                self.song().view.remove_selected_track_listener(self._on_selected_track_changed)
+                self._has_track_listener = False
+                self.log_message("Removed existing track listener")
+                
+            # Now add the listener
+            self.song().view.add_selected_track_listener(self._on_selected_track_changed)
+            self._has_track_listener = True
+            self.log_message("Added track listener")
+            
+            # Initial device setup
+            self._on_selected_track_changed()
+        except Exception as e:
+            self.log_message("Error setting up track listener:", str(e))
+
+    def _on_selected_track_changed(self):
+        """Called when the selected track changes in Live"""
+        self._proq3_device = None
+        self._band1_freq_param = None
         
+        try:
+            track = self.song().view.selected_track
+            self.log_message("Selected track:", track.name)
+            
+            # Find Pro-Q 3 in selected track's devices
+            for device in track.devices:
+                if device.name == "Pro-Q 3":
+                    self._proq3_device = device
+                    self.log_message("Found Pro-Q 3 on track:", track.name)
+                    
+                    # Find Band 1 Frequency parameter
+                    for param in device.parameters:
+                        if param.name == "Band 1 Frequency":
+                            self._band1_freq_param = param
+                            self.log_message("Found Band 1 Frequency parameter, current value:", param.value)
+                            break
+                    
+                    if not self._band1_freq_param:
+                        self.log_message("Could not find Band 1 Frequency parameter")
+                    break
+            
+            if not self._proq3_device:
+                self.log_message("Could not find Pro-Q 3 device on track:", track.name)
+        except Exception as e:
+            self.log_message("Error in track change handler:", str(e))
+
+    def _on_cc92_value(self, value):
+        """Called when CC 92 encoder is turned"""
         # Calculate the change from the last value
         change = 0
         if self._last_cc92_value >= 0:
@@ -45,13 +101,31 @@ class Console1Controller(ControlSurface):
         
         self._last_cc92_value = value
         
-        self.log_message("Console1Controller: Encoder CC 92 absolute value:", value, "change:", change)
+        self.log_message("Encoder CC 92 value:", value, "change:", change)
         
-        # You can add your custom functionality here based on the value
+        # If we have found the Pro-Q 3 device and Band 1 Frequency parameter
+        if self._proq3_device and self._band1_freq_param:
+            # Scale the encoder value (0-127) to parameter range
+            # Assuming parameter range is 0.0 to 1.0
+            param_value = value / 127.0
+            
+            # Update the parameter
+            self._band1_freq_param.value = param_value
+            self.log_message("Setting Pro-Q 3 Band 1 Frequency to:", param_value)
+        else:
+            self.log_message("No Pro-Q 3 device or Band 1 Frequency parameter found on selected track")
 
     def disconnect(self):
-        # Remove the value listener
+        # Remove listeners
         if hasattr(self, '_cc92_encoder') and self._cc92_encoder:
             self._cc92_encoder.remove_value_listener(self._on_cc92_value)
+        
+        # Remove track change listener
+        try:
+            if self._has_track_listener:
+                self.song().view.remove_selected_track_listener(self._on_selected_track_changed)
+                self._has_track_listener = False
+        except Exception as e:
+            self.log_message("Error removing track listener:", str(e))
             
         ControlSurface.disconnect(self)
