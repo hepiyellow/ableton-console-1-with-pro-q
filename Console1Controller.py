@@ -23,6 +23,8 @@ class Console1Controller(ControlSurface):
         self._proq3_device = None
         self._band1_freq_param = None
         self._has_track_listener = False
+        self._sending_feedback = False  # Flag to prevent feedback loops
+        self._has_param_listener = False  # Track if parameter listener is connected
         
         with self.component_guard():
             # Define the MIDI channel to listen on (0-15)
@@ -61,8 +63,22 @@ class Console1Controller(ControlSurface):
         except Exception as e:
             self.log_message("Error setting up track listener:", str(e))
 
+    def _remove_parameter_listener(self):
+        """Safely remove parameter listener if it exists"""
+        try:
+            if self._has_param_listener and self._band1_freq_param and hasattr(self._band1_freq_param, 'remove_value_listener'):
+                self._band1_freq_param.remove_value_listener(self._on_param_value_changed)
+                self._has_param_listener = False
+                self.log_message("Removed parameter listener")
+        except Exception as e:
+            self.log_message("Error removing parameter listener:", str(e))
+
     def _on_selected_track_changed(self):
         """Called when the selected track changes in Live"""
+        # Clean up existing parameter listener
+        self._remove_parameter_listener()
+        
+        # Reset device and parameter references
         self._proq3_device = None
         self._band1_freq_param = None
         
@@ -80,7 +96,21 @@ class Console1Controller(ControlSurface):
                     for param in device.parameters:
                         if param.name == "Band 1 Frequency":
                             self._band1_freq_param = param
-                            self.log_message("Found Band 1 Frequency parameter, current value:", param.value)
+                            current_value = param.value
+                            self.log_message("Found Band 1 Frequency parameter, current value:", current_value)
+                            
+                            # Send feedback to controller with current parameter value
+                            self._send_parameter_feedback(current_value)
+                            
+                            # Add value listener to the parameter to update when Live changes the value
+                            if hasattr(param, 'add_value_listener'):
+                                try:
+                                    self.log_message("Adding value listener to parameter")
+                                    param.add_value_listener(self._on_param_value_changed)
+                                    self._has_param_listener = True
+                                except Exception as e:
+                                    self.log_message("Error adding parameter listener:", str(e))
+                            
                             break
                     
                     if not self._band1_freq_param:
@@ -92,8 +122,46 @@ class Console1Controller(ControlSurface):
         except Exception as e:
             self.log_message("Error in track change handler:", str(e))
 
+    def _on_param_value_changed(self):
+        """Called when the parameter value changes in Live"""
+        if self._band1_freq_param:
+            current_value = self._band1_freq_param.value
+            self.log_message("Parameter value changed in Live:", current_value)
+            self._send_parameter_feedback(current_value)
+
+    def _send_parameter_feedback(self, param_value):
+        """Send feedback to the controller with the current parameter value"""
+        if not self._cc92_encoder:
+            return
+            
+        try:
+            # Prevent feedback loops
+            if self._sending_feedback:
+                return
+                
+            self._sending_feedback = True
+            
+            # Convert parameter value (0.0-1.0) to MIDI value (0-127)
+            midi_value = int(param_value * 127)
+            self.log_message("Sending feedback to controller, MIDI value:", midi_value)
+            
+            # Send the value back to the controller
+            self._cc92_encoder.send_value(midi_value)
+            
+            # Update last value to avoid ping-pong
+            self._last_cc92_value = midi_value
+            
+            self._sending_feedback = False
+        except Exception as e:
+            self._sending_feedback = False
+            self.log_message("Error sending feedback:", str(e))
+
     def _on_cc92_value(self, value):
         """Called when CC 92 encoder is turned"""
+        # Skip if we're in the middle of sending feedback to avoid loops
+        if self._sending_feedback:
+            return
+            
         # Calculate the change from the last value
         change = 0
         if self._last_cc92_value >= 0:
@@ -119,6 +187,9 @@ class Console1Controller(ControlSurface):
         # Remove listeners
         if hasattr(self, '_cc92_encoder') and self._cc92_encoder:
             self._cc92_encoder.remove_value_listener(self._on_cc92_value)
+        
+        # Remove parameter value listener
+        self._remove_parameter_listener()
         
         # Remove track change listener
         try:
