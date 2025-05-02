@@ -116,64 +116,61 @@ class Console1Controller(ControlSurface):
             self.debug_log("Pro-Q 3 not found on selected track, searching all tracks")
             self._find_proq3_on_any_track()
 
+    def _find_proq3_in_device(self, device, track):
+        """Recursively search for Pro-Q 3 within a device (for racks)"""
+        # Check if this device is Pro-Q 3
+        if device.name == "Pro-Q 3":
+            self._proq3_device = device
+            self._current_track = track
+            self.log_message(f"Found Pro-Q 3 in rack on track: {track.name}")
+            self._setup_proq3_parameters(device)
+            return True
+        
+        # Check if this device is a rack with chains
+        if hasattr(device, 'chains') and len(device.chains) > 0:
+            # Look through all chains in the rack
+            for chain in device.chains:
+                # Look through all devices in the chain
+                for chain_device in chain.devices:
+                    # Recursive search in each device
+                    if self._find_proq3_in_device(chain_device, track):
+                        return True
+        return False
+
     def _find_proq3_on_any_track(self):
-        """Search all tracks for Pro-Q 3 device"""
+        """Search all tracks for Pro-Q 3 device, including inside racks"""
         try:
             # Look through all tracks in the session
             for track_index, track in enumerate(self.song().tracks):
                 self.debug_log("Checking track:", track.name)
                 
-                # Find Pro-Q 3 in track's devices
+                # Find Pro-Q 3 in track's devices (direct or in racks)
                 for device in track.devices:
-                    if device.name == "Pro-Q 3":
-                        self._proq3_device = device
-                        self._current_track = track
-                        self.log_message("Found Pro-Q 3 on track:", track.name)
-                        
-                        # Find parameters and set up listeners
-                        self._setup_proq3_parameters(device)
-                        
+                    if self._find_proq3_in_device(device, track):
                         # Select this track to make it visible to the user
                         self.song().view.selected_track = track
-                        
                         return True
                 
             # Also search return tracks
             for track in self.song().return_tracks:
                 self.debug_log("Checking return track:", track.name)
                 
-                # Find Pro-Q 3 in track's devices
+                # Find Pro-Q 3 in track's devices (direct or in racks)
                 for device in track.devices:
-                    if device.name == "Pro-Q 3":
-                        self._proq3_device = device
-                        self._current_track = track
-                        self.log_message("Found Pro-Q 3 on return track:", track.name)
-                        
-                        # Find parameters and set up listeners
-                        self._setup_proq3_parameters(device)
-                        
+                    if self._find_proq3_in_device(device, track):
                         # Select this track to make it visible to the user
                         self.song().view.selected_track = track
-                        
                         return True
             
             # Check master track
             master_track = self.song().master_track
             self.debug_log("Checking master track")
             
-            # Find Pro-Q 3 in master track's devices
+            # Find Pro-Q 3 in master track's devices (direct or in racks)
             for device in master_track.devices:
-                if device.name == "Pro-Q 3":
-                    self._proq3_device = device
-                    self._current_track = master_track
-                    self.log_message("Found Pro-Q 3 on master track")
-                    
-                    # Find parameters and set up listeners
-                    self._setup_proq3_parameters(device)
-                    
+                if self._find_proq3_in_device(device, master_track):
                     # Select master track to make it visible to the user
                     self.song().view.selected_track = master_track
-                    
                     return True
             
             self.log_message("Could not find Pro-Q 3 device on any track")
@@ -322,7 +319,10 @@ class Console1Controller(ControlSurface):
             # Set up volume parameter for the new track
             self._setup_track_volume(track)
             
-            # Find Pro-Q 3 in selected track's devices
+            # Find Pro-Q 3 in selected track's devices (direct or in racks)
+            proq3_found = False
+            
+            # Check direct devices first
             for device in track.devices:
                 if device.name == "Pro-Q 3":
                     self._proq3_device = device
@@ -330,9 +330,19 @@ class Console1Controller(ControlSurface):
                     
                     # Find parameters and set up listeners
                     self._setup_proq3_parameters(device)
+                    proq3_found = True
                     break
             
-            if not self._proq3_device:
+            # If not found, check for racks
+            if not proq3_found:
+                for device in track.devices:
+                    if hasattr(device, 'chains') and len(device.chains) > 0:
+                        # This is a rack, search inside it
+                        if self._find_proq3_in_device(device, track):
+                            proq3_found = True
+                            break
+                            
+            if not proq3_found:
                 self.debug_log("Could not find Pro-Q 3 device on track:", track.name)
                 # Even with no ProQ3, we still have the Volume parameter set up above
                 self.log_message(f"Track volume control active for: {track.name}")
@@ -354,39 +364,54 @@ class Console1Controller(ControlSurface):
             # Print raw parameter value for debugging
             # This is especially useful for Shape parameters to see their actual values
             param = self._param_refs[param_name]
-            if hasattr(param, 'name') and "Shape" in param.name:
-                raw_value = current_value
-                self.log_message(f"RAW PARAMETER VALUE: {param_name} = {raw_value}")
-                
-                # Determine which shape this value represents based on exact values
-                # Bell = 0.0 (for both Band 2 and 5)
-                # Low Shelf = 1.0 (for Band 2)
-                # Low Cut = 2.0 (for Band 2)
-                # High Shelf = 3.0 (for Band 5)
-                # High Cut = 4.0 (for Band 5)
-                
-                if abs(raw_value) < 0.1:  # Bell (value = 0.0)
-                    shape_name = "BELL"
-                elif "Band 2" in param_name:
-                    # Band 2 specific shapes
-                    if abs(raw_value - 1.0) < 0.1:  # Low Shelf (value = 1.0)
-                        shape_name = "LOW SHELF"
-                    elif abs(raw_value - 2.0) < 0.1:  # Low Cut (value = 2.0)
-                        shape_name = "LOW CUT"
+            if hasattr(param, 'name'):
+                if "Shape" in param.name:
+                    raw_value = current_value
+                    self.log_message(f"RAW PARAMETER VALUE: {param_name} = {raw_value}")
+                    
+                    # Determine which shape this value represents based on exact values
+                    # Bell = 0.0 (for both Band 2 and 5)
+                    # Low Shelf = 1.0 (for Band 2)
+                    # Low Cut = 2.0 (for Band 2)
+                    # High Shelf = 3.0 (for Band 5)
+                    # High Cut = 4.0 (for Band 5)
+                    
+                    if abs(raw_value) < 0.1:  # Bell (value = 0.0)
+                        shape_name = "BELL"
+                    elif "Band 2" in param_name:
+                        # Band 2 specific shapes
+                        if abs(raw_value - 1.0) < 0.1:  # Low Shelf (value = 1.0)
+                            shape_name = "LOW SHELF"
+                        elif abs(raw_value - 2.0) < 0.1:  # Low Cut (value = 2.0)
+                            shape_name = "LOW CUT"
+                        else:
+                            shape_name = f"UNKNOWN (value = {raw_value})"
+                    elif "Band 5" in param_name:
+                        # Band 5 specific shapes
+                        if abs(raw_value - 3.0) < 0.1:  # High Shelf (value = 3.0)
+                            shape_name = "HIGH SHELF"
+                        elif abs(raw_value - 4.0) < 0.1:  # High Cut (value = 4.0)
+                            shape_name = "HIGH CUT"
+                        else:
+                            shape_name = f"UNKNOWN (value = {raw_value})"
                     else:
                         shape_name = f"UNKNOWN (value = {raw_value})"
-                elif "Band 5" in param_name:
-                    # Band 5 specific shapes
-                    if abs(raw_value - 3.0) < 0.1:  # High Shelf (value = 3.0)
-                        shape_name = "HIGH SHELF"
-                    elif abs(raw_value - 4.0) < 0.1:  # High Cut (value = 4.0)
-                        shape_name = "HIGH CUT"
+                    
+                    self.log_message(f"SHAPE TYPE: {shape_name}")
+                elif "Q" in param.name:
+                    # Log Q parameter values for debugging
+                    raw_value = current_value
+                    self.log_message(f"RAW Q VALUE: {param_name} = {raw_value}")
+                    
+                    # Determine approximate Q setting
+                    if raw_value >= 0.8:
+                        q_type = "NARROW"
+                    elif raw_value >= 0.3:
+                        q_type = "MEDIUM"
                     else:
-                        shape_name = f"UNKNOWN (value = {raw_value})"
-                else:
-                    shape_name = f"UNKNOWN (value = {raw_value})"
-                
-                self.log_message(f"SHAPE TYPE: {shape_name}")
+                        q_type = "WIDE"
+                        
+                    self.log_message(f"Q TYPE: {q_type}")
             
             # Send feedback to controller with the updated value
             self._send_parameter_feedback(param_name, current_value)
@@ -518,7 +543,12 @@ class Console1Controller(ControlSurface):
         if param_name == "Volume" and param_name in self._param_refs:
             self._handle_parameter_change(param_name, value)
             return
-            
+        
+        # Handle Q parameters (special buttons)
+        if "Q" in param_name and param_name in self._param_refs:
+            self._handle_q_parameter(param_name, value)
+            return
+        
         # Handle Pro-Q 3 parameters only if device exists
         if self._proq3_device and param_name in self._param_refs:
             self._handle_parameter_change(param_name, value)
@@ -671,6 +701,51 @@ class Console1Controller(ControlSurface):
         if abs(actual_value - shape_value) > 0.01:
             self.log_message(f"NOTE: Pro-Q 3 adjusted value to {actual_value} (different from requested {shape_value})")
 
+    def _handle_q_parameter(self, param_name, value):
+        """Special handling for Q parameters from buttons"""
+        # Store the raw MIDI value
+        self._last_midi_values[param_name] = value
+        
+        # Log the incoming MIDI value
+        self.log_message(f"RECEIVED: {param_name} MIDI value {value}")
+        
+        # Get the parameter
+        param = self._param_refs[param_name]
+        
+        # Only respond to higher values to avoid multiple triggers when releasing the button
+        if value < 64:  # Ignore button release (lower values)
+            return
+        
+        # Get current Q value
+        current_value = self._current_param_values[param_name]
+        
+        # Define Q presets (adjust these based on testing)
+        # Q values typically range from narrow (high value) to wide (low value)
+        Q_NARROW = 1.0   # Narrow Q
+        Q_MEDIUM = 0.5   # Medium Q
+        Q_WIDE = 0.1     # Wide Q
+        
+        # Cycle through Q presets each time the button is pressed
+        if current_value >= 0.8:     # If current Q is narrow or close to it
+            new_value = Q_MEDIUM     # Switch to medium
+            q_label = "Medium"
+        elif current_value >= 0.3:   # If current Q is medium or close to it
+            new_value = Q_WIDE       # Switch to wide
+            q_label = "Wide"
+        else:                        # If current Q is wide or close to it
+            new_value = Q_NARROW     # Switch to narrow
+            q_label = "Narrow"
+        
+        # Update our tracking value
+        self._current_param_values[param_name] = new_value
+        
+        # Log the Q change
+        self.log_message(f"SETTING {param_name} to {q_label} (Value: {new_value})")
+        
+        # Update the parameter in Live
+        self._parameter_value_changed_from_controller = True
+        param.value = new_value
+
     def disconnect(self):
         # Remove encoder listeners
         for param_name, encoder in self._encoders.items():
@@ -694,8 +769,8 @@ class Console1Controller(ControlSurface):
         ControlSurface.disconnect(self)
 
     def _log_shape_mappings(self):
-        """Log the shape mappings for debugging purposes"""
-        self.log_message("------ Console1 Shape Mappings ------")
+        """Log the shape and Q button mappings for debugging purposes"""
+        self.log_message("------ Console1 Control Mappings ------")
         self.log_message("MIDI-to-ProQ3 Shape Mappings:")
         self.log_message("Band 2:")
         self.log_message(f"- MIDI {SHAPE_SHELF} (Shelf) → ProQ3 1.0 (Low Shelf)")
@@ -705,4 +780,10 @@ class Console1Controller(ControlSurface):
         self.log_message(f"- MIDI {SHAPE_SHELF} (Shelf) → ProQ3 3.0 (High Shelf)")
         self.log_message(f"- MIDI {SHAPE_BELL} (Bell)  → ProQ3 0.0 (Bell)")
         self.log_message(f"- MIDI {SHAPE_CUT} (Cut)   → ProQ3 4.0 (High Cut)")
+        
+        # Q button mappings
+        self.log_message("Q Button Mappings:")
+        self.log_message("- CC 90 → Band 3 Q")
+        self.log_message("- CC 87 → Band 4 Q")
+        self.log_message("- Q Values: 0.1 (Wide), 0.5 (Medium), 1.0 (Narrow)")
         self.log_message("-----------------------------------")

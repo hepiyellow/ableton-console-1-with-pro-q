@@ -34,6 +34,12 @@ KNOB_VOLUME = 7      # Volume control
 BUTTON_EQ1_SHAPE = 93  # Band 1 Shape (maps to Pro-Q3 Band 2 Shape)
 BUTTON_EQ4_SHAPE = 65  # Band 4 Shape (maps to Pro-Q3 Band 5 Shape)
 
+# Q Button Definitions
+# -------------------
+# Q control buttons for Bands 2 and 3
+BUTTON_EQ2_Q = 90  # Band 2 Q (maps to Pro-Q3 Band 3 Q)
+BUTTON_EQ3_Q = 87  # Band 3 Q (maps to Pro-Q3 Band 4 Q)
+
 # Shape value definitions
 SHAPE_SHELF = 0
 SHAPE_BELL = 63
@@ -53,6 +59,12 @@ CONTROL_NAMES = {
     
     KNOB_LOW_PASS: "Low Pass Frequency",
     KNOB_HIGH_PASS: "High Pass Frequency",
+    
+    BUTTON_EQ1_SHAPE: "EQ Band 1 Shape",
+    BUTTON_EQ4_SHAPE: "EQ Band 4 Shape",
+    
+    BUTTON_EQ2_Q: "EQ Band 2 Q",
+    BUTTON_EQ3_Q: "EQ Band 3 Q",
     
     KNOB_GAIN: "Gain",
     KNOB_VOLUME: "Volume"

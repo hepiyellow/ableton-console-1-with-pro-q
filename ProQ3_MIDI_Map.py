@@ -37,6 +37,10 @@ PARAMETER_CC_MAP = {
     "Band 2 Shape": BUTTON_EQ1_SHAPE,
     "Band 5 Shape": BUTTON_EQ4_SHAPE,
     
+    # Q parameters
+    "Band 3 Q": BUTTON_EQ2_Q,  # Band 2 button controls Band 3 Q
+    "Band 4 Q": BUTTON_EQ3_Q,  # Band 3 button controls Band 4 Q
+    
     # Global parameters
     "Output Level": KNOB_GAIN,
     "Volume": KNOB_VOLUME,
@@ -44,8 +48,6 @@ PARAMETER_CC_MAP = {
     # Additional parameters that could be mapped
     # Uncomment to enable these mappings
     # "Band 2 Q": KNOB_EQ1_Q,
-    # "Band 3 Q": KNOB_EQ2_Q,
-    # "Band 4 Q": KNOB_EQ3_Q,
     # "Band 5 Q": KNOB_EQ4_Q,
 }
 
