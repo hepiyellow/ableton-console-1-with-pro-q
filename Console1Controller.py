@@ -42,7 +42,126 @@ class Console1Controller(ControlSurface):
             # Safely add track change listener
             self._setup_track_listener()
             
+            # Schedule the initial device setup to run after Live has fully loaded
+            self.schedule_message(1, self._initial_device_setup)
+            
             self.log_message("Console1Controller: Listening for CC 92 encoder on channel", self._midi_channel + 1)
+
+    def _initial_device_setup(self):
+        """Initialize device and parameter setup on script load"""
+        self.log_message("Running initial device setup")
+        
+        # First check the currently selected track
+        self._on_selected_track_changed()
+        
+        # If we didn't find the device on the selected track, search all tracks
+        if not self._proq3_device:
+            self.log_message("Pro-Q 3 not found on selected track, searching all tracks")
+            self._find_proq3_on_any_track()
+
+    def _find_proq3_on_any_track(self):
+        """Search all tracks for Pro-Q 3 device"""
+        try:
+            # Look through all tracks in the session
+            for track_index, track in enumerate(self.song().tracks):
+                self.log_message("Checking track:", track.name)
+                
+                # Find Pro-Q 3 in track's devices
+                for device in track.devices:
+                    if device.name == "Pro-Q 3":
+                        self._proq3_device = device
+                        self.log_message("Found Pro-Q 3 on track:", track.name)
+                        
+                        # Find Band 1 Frequency parameter
+                        for param in device.parameters:
+                            if param.name == "Band 1 Frequency":
+                                self._band1_freq_param = param
+                                current_value = param.value
+                                self.log_message("Found Band 1 Frequency parameter, current value:", current_value)
+                                
+                                # Send feedback to controller with current parameter value
+                                self._send_parameter_feedback(current_value)
+                                
+                                # Add value listener to the parameter to update when Live changes the value
+                                self._setup_parameter_listener(param)
+                                
+                                # Select this track to make it visible to the user
+                                self.song().view.selected_track = track
+                                
+                                return True
+                
+            # Also search return tracks
+            for track in self.song().return_tracks:
+                self.log_message("Checking return track:", track.name)
+                
+                # Find Pro-Q 3 in track's devices
+                for device in track.devices:
+                    if device.name == "Pro-Q 3":
+                        self._proq3_device = device
+                        self.log_message("Found Pro-Q 3 on return track:", track.name)
+                        
+                        # Find Band 1 Frequency parameter
+                        for param in device.parameters:
+                            if param.name == "Band 1 Frequency":
+                                self._band1_freq_param = param
+                                current_value = param.value
+                                self.log_message("Found Band 1 Frequency parameter, current value:", current_value)
+                                
+                                # Send feedback to controller with current parameter value
+                                self._send_parameter_feedback(current_value)
+                                
+                                # Add value listener to the parameter to update when Live changes the value
+                                self._setup_parameter_listener(param)
+                                
+                                # Select this track to make it visible to the user
+                                self.song().view.selected_track = track
+                                
+                                return True
+            
+            # Check master track
+            master_track = self.song().master_track
+            self.log_message("Checking master track")
+            
+            # Find Pro-Q 3 in master track's devices
+            for device in master_track.devices:
+                if device.name == "Pro-Q 3":
+                    self._proq3_device = device
+                    self.log_message("Found Pro-Q 3 on master track")
+                    
+                    # Find Band 1 Frequency parameter
+                    for param in device.parameters:
+                        if param.name == "Band 1 Frequency":
+                            self._band1_freq_param = param
+                            current_value = param.value
+                            self.log_message("Found Band 1 Frequency parameter, current value:", current_value)
+                            
+                            # Send feedback to controller with current parameter value
+                            self._send_parameter_feedback(current_value)
+                            
+                            # Add value listener to the parameter to update when Live changes the value
+                            self._setup_parameter_listener(param)
+                            
+                            # Select master track to make it visible to the user
+                            self.song().view.selected_track = master_track
+                            
+                            return True
+            
+            self.log_message("Could not find Pro-Q 3 device on any track")
+            return False
+            
+        except Exception as e:
+            self.log_message("Error in global device search:", str(e))
+            return False
+
+    def _setup_parameter_listener(self, param):
+        """Setup a listener for parameter value changes"""
+        if hasattr(param, 'add_value_listener'):
+            try:
+                self.log_message("Adding value listener to parameter")
+                param.add_value_listener(self._on_param_value_changed)
+                self._has_param_listener = True
+            except Exception as e:
+                self.log_message("Error adding parameter listener:", str(e))
 
     def _setup_track_listener(self):
         """Setup the track selection listener safely"""
@@ -58,8 +177,6 @@ class Console1Controller(ControlSurface):
             self._has_track_listener = True
             self.log_message("Added track listener")
             
-            # Initial device setup
-            self._on_selected_track_changed()
         except Exception as e:
             self.log_message("Error setting up track listener:", str(e))
 
@@ -103,13 +220,7 @@ class Console1Controller(ControlSurface):
                             self._send_parameter_feedback(current_value)
                             
                             # Add value listener to the parameter to update when Live changes the value
-                            if hasattr(param, 'add_value_listener'):
-                                try:
-                                    self.log_message("Adding value listener to parameter")
-                                    param.add_value_listener(self._on_param_value_changed)
-                                    self._has_param_listener = True
-                                except Exception as e:
-                                    self.log_message("Error adding parameter listener:", str(e))
+                            self._setup_parameter_listener(param)
                             
                             break
                     
