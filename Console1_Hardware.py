@@ -28,6 +28,17 @@ KNOB_HIGH_PASS = 103  # High Pass Filter (Band 1)
 KNOB_GAIN = 107  # Gain control
 KNOB_VOLUME = 7      # Volume control
 
+# Shape Button Definitions
+# -----------------------
+# Shape buttons for Bands 1 and 4 - toggle between Shelf (0), Bell (63), and Cut (127)
+BUTTON_EQ1_SHAPE = 93  # Band 1 Shape (maps to Pro-Q3 Band 2 Shape)
+BUTTON_EQ4_SHAPE = 65  # Band 4 Shape (maps to Pro-Q3 Band 5 Shape)
+
+# Shape value definitions
+SHAPE_SHELF = 0
+SHAPE_BELL = 63
+SHAPE_CUT = 127
+
 # Human-readable names for each control
 CONTROL_NAMES = {
     KNOB_EQ1_FREQ: "EQ Band 1 Frequency",

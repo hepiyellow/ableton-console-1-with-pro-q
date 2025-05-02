@@ -5,6 +5,7 @@ from _Framework.ControlSurface import ControlSurface
 from _Framework.InputControlElement import MIDI_CC_TYPE
 from _Framework.SliderElement import SliderElement
 from .ProQ3_MIDI_Map import PARAMETER_CC_MAP, MIDI_CHANNEL, ENABLE_DEBUG_LOGGING
+from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT
 
 
 class Console1Controller(ControlSurface):
@@ -65,6 +66,9 @@ class Console1Controller(ControlSurface):
             
             # Schedule the initial device setup to run after Live has fully loaded
             self.schedule_message(1, self._initial_device_setup)
+            
+            # Log shape mapping for debugging
+            self.schedule_message(2, self._log_shape_mappings)
             
             # Log the mode we're in
             mode_str = "relative (stepped)" if self.EMULATE_RELATIVE_MODE else "absolute (0-127)"
@@ -347,6 +351,43 @@ class Console1Controller(ControlSurface):
             current_value = self._param_refs[param_name].value
             self._current_param_values[param_name] = current_value
             
+            # Print raw parameter value for debugging
+            # This is especially useful for Shape parameters to see their actual values
+            param = self._param_refs[param_name]
+            if hasattr(param, 'name') and "Shape" in param.name:
+                raw_value = current_value
+                self.log_message(f"RAW PARAMETER VALUE: {param_name} = {raw_value}")
+                
+                # Determine which shape this value represents based on exact values
+                # Bell = 0.0 (for both Band 2 and 5)
+                # Low Shelf = 1.0 (for Band 2)
+                # Low Cut = 2.0 (for Band 2)
+                # High Shelf = 3.0 (for Band 5)
+                # High Cut = 4.0 (for Band 5)
+                
+                if abs(raw_value) < 0.1:  # Bell (value = 0.0)
+                    shape_name = "BELL"
+                elif "Band 2" in param_name:
+                    # Band 2 specific shapes
+                    if abs(raw_value - 1.0) < 0.1:  # Low Shelf (value = 1.0)
+                        shape_name = "LOW SHELF"
+                    elif abs(raw_value - 2.0) < 0.1:  # Low Cut (value = 2.0)
+                        shape_name = "LOW CUT"
+                    else:
+                        shape_name = f"UNKNOWN (value = {raw_value})"
+                elif "Band 5" in param_name:
+                    # Band 5 specific shapes
+                    if abs(raw_value - 3.0) < 0.1:  # High Shelf (value = 3.0)
+                        shape_name = "HIGH SHELF"
+                    elif abs(raw_value - 4.0) < 0.1:  # High Cut (value = 4.0)
+                        shape_name = "HIGH CUT"
+                    else:
+                        shape_name = f"UNKNOWN (value = {raw_value})"
+                else:
+                    shape_name = f"UNKNOWN (value = {raw_value})"
+                
+                self.log_message(f"SHAPE TYPE: {shape_name}")
+            
             # Send feedback to controller with the updated value
             self._send_parameter_feedback(param_name, current_value)
 
@@ -362,8 +403,17 @@ class Console1Controller(ControlSurface):
                 
             self._sending_feedback = True
             
-            # Convert parameter value (0.0-1.0) to MIDI value (0-127)
-            midi_value = int(param_value * 127)
+            # Special handling for shape parameters to translate Pro-Q 3 values to Console1 values
+            if "Shape" in param_name:
+                # Get the current Pro-Q 3 raw value
+                raw_value = param_value
+                self.log_message(f"FEEDBACK REQUEST: Processing {param_name} with raw value {raw_value}")
+                
+                # Translate to MIDI value
+                midi_value = self._translate_shape_to_midi(param_name, param_value)
+            else:
+                # Convert normal parameter value (0.0-1.0) to MIDI value (0-127)
+                midi_value = int(param_value * 127)
             
             # Log message only if not silent and debug logging is enabled
             if not silent and self._debug_logging:
@@ -379,6 +429,53 @@ class Console1Controller(ControlSurface):
         except Exception as e:
             self._sending_feedback = False
             self.log_message(f"Error sending feedback for {param_name}:", str(e))
+
+    def _translate_shape_to_midi(self, param_name, param_value):
+        """Translate Pro-Q 3 shape values to Console1 MIDI values"""
+        # For Console1, we need to convert from Pro-Q 3 values to:
+        # Shelf = 0, Bell = 63, Cut = 127
+        
+        # Bell = 0.0 (for both Band 2 and 5)
+        # Low Shelf = 1.0 (for Band 2)
+        # Low Cut = 2.0 (for Band 2)
+        # High Shelf = 3.0 (for Band 5)
+        # High Cut = 4.0 (for Band 5)
+        
+        from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT
+        
+        # Debug the incoming value
+        self.log_message(f"TRANSLATING: {param_name} with value {param_value} to MIDI")
+        
+        # Default to Bell (middle position)
+        midi_value = SHAPE_BELL
+        midi_label = "Bell"
+        
+        # Check which band we're dealing with
+        if "Band 2" in param_name:
+            # For Band 2
+            if abs(param_value) < 0.1:  # Bell (0.0)
+                midi_value = SHAPE_BELL  # 63
+                midi_label = "Bell"
+            elif abs(param_value - 1.0) < 0.1:  # Low Shelf (1.0)
+                midi_value = SHAPE_SHELF  # 0
+                midi_label = "Low Shelf"
+            elif abs(param_value - 2.0) < 0.1:  # Low Cut (2.0)
+                midi_value = SHAPE_CUT  # 127
+                midi_label = "Low Cut"
+        elif "Band 5" in param_name:
+            # For Band 5
+            if abs(param_value) < 0.1:  # Bell (0.0)
+                midi_value = SHAPE_BELL  # 63
+                midi_label = "Bell"
+            elif abs(param_value - 3.0) < 0.1:  # High Shelf (3.0)
+                midi_value = SHAPE_SHELF  # 0
+                midi_label = "High Shelf"
+            elif abs(param_value - 4.0) < 0.1:  # High Cut (4.0)
+                midi_value = SHAPE_CUT  # 127
+                midi_label = "High Cut"
+        
+        self.log_message(f"FEEDBACK: Translated {param_name} value {param_value} to MIDI {midi_value} ({midi_label})")
+        return midi_value
 
     def _determine_relative_change(self, param_name, new_value):
         """Determine the relative change direction based on current and new MIDI values"""
@@ -436,6 +533,11 @@ class Console1Controller(ControlSurface):
         # Get the parameter
         param = self._param_refs[param_name]
         
+        # Special handling for shape parameters (3-step toggle buttons)
+        if "Shape" in param_name:
+            self._handle_shape_parameter(param_name, value, param)
+            return
+        
         if self.EMULATE_RELATIVE_MODE:
             # ------ RELATIVE MODE ------
             # Determine the direction of movement
@@ -477,6 +579,98 @@ class Console1Controller(ControlSurface):
         # Update the parameter in Live
         param.value = new_value
 
+    def _handle_shape_parameter(self, param_name, value, param):
+        """Special handling for shape parameters (3-step toggle buttons)"""
+        # Store the raw MIDI value
+        self._last_midi_values[param_name] = value
+        
+        # Shape toggle buttons have 3 positions: Shelf (0), Bell (63), Cut (127)
+        # Map from Console1 values to actual Pro-Q 3 parameter values
+        
+        # Pro-Q 3 actually uses different raw values for Band 2 and Band 5:
+        # Bell = 0.0 (for both Band 2 and 5)
+        # Low Shelf = 1.0 (for Band 2)
+        # Low Cut = 2.0 (for Band 2)
+        # High Shelf = 3.0 (for Band 5)
+        # High Cut = 4.0 (for Band 5)
+        
+        # Bell is common for both bands
+        PROQ3_BELL_VALUE = 0.0
+        
+        # Band 2 uses Low Shelf/Cut
+        PROQ3_LOW_SHELF_VALUE = 1.0
+        PROQ3_LOW_CUT_VALUE = 2.0
+        
+        # Band 5 uses High Shelf/Cut
+        PROQ3_HIGH_SHELF_VALUE = 3.0
+        PROQ3_HIGH_CUT_VALUE = 4.0
+        
+        shape_value = PROQ3_BELL_VALUE  # Default to Bell shape
+        shape_name = "Bell"
+        
+        # Log the incoming MIDI value for debugging
+        self.log_message(f"RECEIVED: {param_name} MIDI value {value}")
+        
+        # Different logic based on which band we're controlling
+        if "Band 2" in param_name:
+            # Band 2 uses Low Shelf/Cut
+            if value == SHAPE_SHELF:  # Console1 value = 0
+                shape_value = PROQ3_LOW_SHELF_VALUE
+                shape_name = "Low Shelf"
+            elif value == SHAPE_BELL:  # Console1 value = 63
+                shape_value = PROQ3_BELL_VALUE
+                shape_name = "Bell"
+            elif value == SHAPE_CUT:  # Console1 value = 127
+                shape_value = PROQ3_LOW_CUT_VALUE
+                shape_name = "Low Cut"
+            else:
+                # For any intermediate values, map to the closest defined shape
+                if value < SHAPE_BELL/2:
+                    shape_value = PROQ3_LOW_SHELF_VALUE
+                    shape_name = "Low Shelf"
+                elif value < (SHAPE_BELL + SHAPE_CUT)/2:
+                    shape_value = PROQ3_BELL_VALUE
+                    shape_name = "Bell"
+                else:
+                    shape_value = PROQ3_LOW_CUT_VALUE
+                    shape_name = "Low Cut"
+        else:  # "Band 5" in param_name
+            # Band 5 uses High Shelf/Cut
+            if value == SHAPE_SHELF:  # Console1 value = 0
+                shape_value = PROQ3_HIGH_SHELF_VALUE
+                shape_name = "High Shelf"
+            elif value == SHAPE_BELL:  # Console1 value = 63
+                shape_value = PROQ3_BELL_VALUE
+                shape_name = "Bell"
+            elif value == SHAPE_CUT:  # Console1 value = 127
+                shape_value = PROQ3_HIGH_CUT_VALUE
+                shape_name = "High Cut"
+            else:
+                # For any intermediate values, map to the closest defined shape
+                if value < SHAPE_BELL/2:
+                    shape_value = PROQ3_HIGH_SHELF_VALUE
+                    shape_name = "High Shelf"
+                elif value < (SHAPE_BELL + SHAPE_CUT)/2:
+                    shape_value = PROQ3_BELL_VALUE
+                    shape_name = "Bell"
+                else:
+                    shape_value = PROQ3_HIGH_CUT_VALUE
+                    shape_name = "High Cut"
+        
+        # Update our tracking value
+        self._current_param_values[param_name] = shape_value
+        
+        # Log the shape change with raw value to help determine the actual Pro-Q 3 values
+        self.log_message(f"SETTING {param_name} to {shape_name} (MIDI: {value}, Parameter: {shape_value})")
+        
+        # Update the parameter in Live
+        param.value = shape_value
+        
+        # After setting value, directly read back the "actual" value that Live accepted
+        actual_value = param.value
+        if abs(actual_value - shape_value) > 0.01:
+            self.log_message(f"NOTE: Pro-Q 3 adjusted value to {actual_value} (different from requested {shape_value})")
+
     def disconnect(self):
         # Remove encoder listeners
         for param_name, encoder in self._encoders.items():
@@ -498,3 +692,17 @@ class Console1Controller(ControlSurface):
             self.log_message("Error removing track listener:", str(e))
             
         ControlSurface.disconnect(self)
+
+    def _log_shape_mappings(self):
+        """Log the shape mappings for debugging purposes"""
+        self.log_message("------ Console1 Shape Mappings ------")
+        self.log_message("MIDI-to-ProQ3 Shape Mappings:")
+        self.log_message("Band 2:")
+        self.log_message(f"- MIDI {SHAPE_SHELF} (Shelf) → ProQ3 1.0 (Low Shelf)")
+        self.log_message(f"- MIDI {SHAPE_BELL} (Bell)  → ProQ3 0.0 (Bell)")
+        self.log_message(f"- MIDI {SHAPE_CUT} (Cut)   → ProQ3 2.0 (Low Cut)")
+        self.log_message("Band 5:")
+        self.log_message(f"- MIDI {SHAPE_SHELF} (Shelf) → ProQ3 3.0 (High Shelf)")
+        self.log_message(f"- MIDI {SHAPE_BELL} (Bell)  → ProQ3 0.0 (Bell)")
+        self.log_message(f"- MIDI {SHAPE_CUT} (Cut)   → ProQ3 4.0 (High Cut)")
+        self.log_message("-----------------------------------")

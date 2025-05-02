@@ -33,6 +33,10 @@ PARAMETER_CC_MAP = {
     "Band 4 Gain": KNOB_EQ3_GAIN,
     "Band 5 Gain": KNOB_EQ4_GAIN,
     
+    # Shape parameters
+    "Band 2 Shape": BUTTON_EQ1_SHAPE,
+    "Band 5 Shape": BUTTON_EQ4_SHAPE,
+    
     # Global parameters
     "Output Level": KNOB_GAIN,
     "Volume": KNOB_VOLUME,
