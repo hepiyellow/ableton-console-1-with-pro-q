@@ -37,21 +37,29 @@ PARAMETER_CC_MAP = {
     "Band 2 Shape": BUTTON_EQ1_SHAPE,
     "Band 5 Shape": BUTTON_EQ4_SHAPE,
     
-    # Q parameters
-    "Band 3 Q": BUTTON_EQ2_Q,  # Band 2 button controls Band 3 Q
-    "Band 4 Q": BUTTON_EQ3_Q,  # Band 3 button controls Band 4 Q
+    # Q parameters - corrected according to how hardware maps to Pro-Q bands
+    "Band 3 Q": BUTTON_EQ2_Q,  # CC 90 - Hardware Band 2 maps to Pro-Q Band 3
+    "Band 4 Q": BUTTON_EQ3_Q,  # CC 87 - Hardware Band 3 maps to Pro-Q Band 4
+    
+    # Add other Q parameters with appropriate mappings
+    "Band 2 Q": KNOB_EQ1_Q,  # CC 94 - Using knob for Band 2 Q
+    "Band 5 Q": KNOB_EQ4_Q,  # CC 84 - Using knob for Band 5 Q
     
     # Global parameters
     "Output Level": KNOB_GAIN,
     
     # Device control
     "Device On": BUTTON_EQ_BYPASS,  # EQ Bypass button controls Pro-Q3 Device On
-    
-    # Additional parameters that could be mapped
-    # Uncomment to enable these mappings
-    # "Band 2 Q": KNOB_EQ1_Q,
-    # "Band 5 Q": KNOB_EQ4_Q,
 }
+
+# Note about hardware controls and mappings:
+# Hardware to Pro-Q mapping:
+# - Hardware Band 2 Q button (CC 90) maps to Pro-Q Band 3 Q
+# - Hardware Band 3 Q button (CC 87) maps to Pro-Q Band 4 Q
+# - Hardware Band 1 Q knob (CC 94) maps to Pro-Q Band 2 Q
+# - Hardware Band 4 Q knob (CC 84) maps to Pro-Q Band 5 Q
+#
+# This maintains the original hardware layout while allowing continuous Q control
 
 # Create a reverse mapping for debugging/display purposes
 # Maps CC numbers to parameter names

@@ -20,6 +20,12 @@ KNOB_EQ2_GAIN = 88  # Band 3 Gain (previously Band 2)
 KNOB_EQ3_GAIN = 85  # Band 4 Gain (previously Band 3)
 KNOB_EQ4_GAIN = 82  # Band 5 Gain (previously Band 4)
 
+# Q Knobs
+KNOB_EQ1_Q = 94  # Band 2 Q (previously Band 1) - CC 94
+KNOB_EQ2_Q = 64  # Band 3 Q - suggested mapping - CC 64
+KNOB_EQ3_Q = 66  # Band 4 Q - suggested mapping - CC 66
+KNOB_EQ4_Q = 84  # Band 5 Q (previously Band 4) - CC 84
+
 # Filter Knobs
 KNOB_LOW_PASS = 105  # Low Pass Filter (Band 6)
 KNOB_HIGH_PASS = 103  # High Pass Filter (Band 1)
@@ -37,8 +43,8 @@ BUTTON_EQ4_SHAPE = 65  # Band 4 Shape (maps to Pro-Q3 Band 5 Shape)
 # Q Button Definitions
 # -------------------
 # Q control buttons for Bands 2 and 3
-BUTTON_EQ2_Q = 90  # Band 2 Q (maps to Pro-Q3 Band 3 Q)
-BUTTON_EQ3_Q = 87  # Band 3 Q (maps to Pro-Q3 Band 4 Q)
+BUTTON_EQ2_Q = 90  # Band 2 Q (maps to Pro-Q3 Band 3 Q) - CC 90
+BUTTON_EQ3_Q = 87  # Band 3 Q (maps to Pro-Q3 Band 4 Q) - CC 87
 
 # Bypass Button Definition
 # ----------------------
@@ -65,6 +71,11 @@ CONTROL_NAMES = {
     KNOB_EQ2_GAIN: "EQ Band 2 Gain",
     KNOB_EQ3_GAIN: "EQ Band 3 Gain",
     KNOB_EQ4_GAIN: "EQ Band 4 Gain",
+    
+    KNOB_EQ1_Q: "EQ Band 1 Q",
+    KNOB_EQ2_Q: "EQ Band 2 Q",
+    KNOB_EQ3_Q: "EQ Band 3 Q",
+    KNOB_EQ4_Q: "EQ Band 4 Q",
     
     KNOB_LOW_PASS: "Low Pass Frequency",
     KNOB_HIGH_PASS: "High Pass Frequency",

@@ -37,7 +37,7 @@ class Console1ProQ(ControlSurface):
         self._sending_feedback = False  # Flag to prevent feedback loops
         self._has_param_listener = False  # Track if parameter listener is connected
         self._parameter_value_changed_from_controller = False  # Flag to track source of value changes
-        self._debug_logging = ENABLE_DEBUG_LOGGING
+        self._debug_logging = True  # ALWAYS enable debug logging to troubleshoot Q issue
         
         # Get parameter CC map from the imported mapping file
         self._param_cc_map = PARAMETER_CC_MAP
@@ -86,6 +86,18 @@ class Console1ProQ(ControlSurface):
     
     def _setup_encoders(self):
         """Create encoder elements and set up listeners"""
+        # Log all mapping values for debugging
+        self.log_message("DEBUG: Setting up encoders with these CC mappings:")
+        for param_name, cc_number in self._param_cc_map.items():
+            if "Q" in param_name:
+                self.log_message(f"Q PARAMETER MAPPING: {param_name} -> CC {cc_number}")
+                
+        # Extra debug for Q knobs
+        self.log_message(f"DEBUG Q KNOBS: Band 2 Q -> CC {self._param_cc_map.get('Band 2 Q', 'NOT MAPPED')}")
+        self.log_message(f"DEBUG Q KNOBS: Band 3 Q -> CC {self._param_cc_map.get('Band 3 Q', 'NOT MAPPED')}")
+        self.log_message(f"DEBUG Q KNOBS: Band 4 Q -> CC {self._param_cc_map.get('Band 4 Q', 'NOT MAPPED')}")
+        self.log_message(f"DEBUG Q KNOBS: Band 5 Q -> CC {self._param_cc_map.get('Band 5 Q', 'NOT MAPPED')}")
+        
         # Set up ProQ3 parameter encoders
         for param_name, cc_number in self._param_cc_map.items():
             # Create a slider element for this CC number
@@ -101,6 +113,9 @@ class Console1ProQ(ControlSurface):
             # Add value listener with a closure to capture the parameter name
             def create_proq_listener(param_name=param_name):
                 def listener(value):
+                    # Add special logging for Q parameters
+                    if "Q" in param_name:
+                        self.log_message(f"RECEIVED Q CONTROL: {param_name} with value {value}")
                     self._on_encoder_value(param_name, value)
                 return listener
             
@@ -221,12 +236,19 @@ class Console1ProQ(ControlSurface):
                 if param_name == "Volume":
                     continue
                     
+                found_param = False
                 for param in device.parameters:
                     if param.name == param_name:
+                        found_param = True
                         self._param_refs[param_name] = param
                         current_value = param.value
                         self._current_param_values[param_name] = current_value
-                        self.debug_log(f"Found {param_name} parameter, current value: {current_value}")
+                        
+                        # Special logging for Q parameters
+                        if "Q" in param_name:
+                            self.log_message(f"FOUND Q PARAMETER: {param_name}, value: {current_value}")
+                        else:
+                            self.debug_log(f"Found {param_name} parameter, current value: {current_value}")
                         
                         # Send feedback to controller with current parameter value (silent)
                         if param_name in self._encoders:
@@ -238,13 +260,25 @@ class Console1ProQ(ControlSurface):
                         break
                 
                 # Check if we found the parameter
-                if param_name not in self._param_refs and param_name != "Volume":
-                    self.debug_log(f"Could not find {param_name} parameter")
+                if not found_param and param_name != "Volume":
+                    # Extra logging for Q parameters
+                    if "Q" in param_name:
+                        self.log_message(f"WARNING: Could not find Q parameter: {param_name}")
+                        # List all available parameters
+                        self.log_message("AVAILABLE PARAMETERS:")
+                        for idx, p in enumerate(device.parameters):
+                            self.log_message(f"{idx}: {p.name}")
+                    else:
+                        self.debug_log(f"Could not find {param_name} parameter")
             
             # Log summary of found parameters
             found_proq3_params = sum(1 for name in self._param_refs if name != "Volume")
             total_proq3_params = len(self._param_cc_map) - (1 if "Volume" in self._param_cc_map else 0)
             self.log_message(f"Found {found_proq3_params} of {total_proq3_params} Pro-Q 3 parameters")
+            
+            # List which Q parameters were found
+            q_params_found = [name for name in self._param_refs if "Q" in name]
+            self.log_message(f"Q parameters found: {q_params_found}")
                 
         except Exception as e:
             self.log_message("Error setting up Pro-Q 3 parameters:", str(e))
@@ -513,70 +547,26 @@ class Console1ProQ(ControlSurface):
 
     def _on_param_value_changed(self, param_name):
         """Called when a parameter value changes in Live"""
-        if param_name in self._param_refs:
-            # Skip if the change was triggered by our controller
+        try:
+            # Skip if this change came from our controller (avoid feedback loops)
             if self._parameter_value_changed_from_controller:
                 self._parameter_value_changed_from_controller = False
                 return
                 
-            # Get the current value and update our tracking
-            current_value = self._param_refs[param_name].value
-            self._current_param_values[param_name] = current_value
-            
-            # Print raw parameter value for debugging
-            # This is especially useful for Shape parameters to see their actual values
+            # Get parameter and its value
             param = self._param_refs[param_name]
-            if hasattr(param, 'name'):
-                if "Shape" in param.name:
-                    raw_value = current_value
-                    self.log_message(f"RAW PARAMETER VALUE: {param_name} = {raw_value}")
-                    
-                    # Determine which shape this value represents based on exact values
-                    # Bell = 0.0 (for both Band 2 and 5)
-                    # Low Shelf = 1.0 (for Band 2)
-                    # Low Cut = 2.0 (for Band 2)
-                    # High Shelf = 3.0 (for Band 5)
-                    # High Cut = 4.0 (for Band 5)
-                    
-                    if abs(raw_value) < 0.1:  # Bell (value = 0.0)
-                        shape_name = "BELL"
-                    elif "Band 2" in param_name:
-                        # Band 2 specific shapes
-                        if abs(raw_value - 1.0) < 0.1:  # Low Shelf (value = 1.0)
-                            shape_name = "LOW SHELF"
-                        elif abs(raw_value - 2.0) < 0.1:  # Low Cut (value = 2.0)
-                            shape_name = "LOW CUT"
-                        else:
-                            shape_name = f"UNKNOWN (value = {raw_value})"
-                    elif "Band 5" in param_name:
-                        # Band 5 specific shapes
-                        if abs(raw_value - 3.0) < 0.1:  # High Shelf (value = 3.0)
-                            shape_name = "HIGH SHELF"
-                        elif abs(raw_value - 4.0) < 0.1:  # High Cut (value = 4.0)
-                            shape_name = "HIGH CUT"
-                        else:
-                            shape_name = f"UNKNOWN (value = {raw_value})"
-                    else:
-                        shape_name = f"UNKNOWN (value = {raw_value})"
-                    
-                    self.log_message(f"SHAPE TYPE: {shape_name}")
-                elif "Q" in param.name:
-                    # Log Q parameter values for debugging
-                    raw_value = current_value
-                    self.log_message(f"RAW Q VALUE: {param_name} = {raw_value}")
-                    
-                    # Determine approximate Q setting
-                    if raw_value >= 0.8:
-                        q_type = "NARROW"
-                    elif raw_value >= 0.3:
-                        q_type = "MEDIUM"
-                    else:
-                        q_type = "WIDE"
-                        
-                    self.log_message(f"Q TYPE: {q_type}")
+            param_value = param.value
             
-            # Send feedback to controller with the updated value
-            self._send_parameter_feedback(param_name, current_value)
+            # Update our tracking value
+            self._current_param_values[param_name] = param_value
+            
+            # Send feedback to controller
+            self._send_parameter_feedback(param_name, param_value)
+            
+            self.debug_log(f"Parameter {param_name} changed to {param_value}")
+                
+        except Exception as e:
+            self.log_message(f"Error handling parameter change notification: {str(e)}")
 
     def _send_parameter_feedback(self, param_name, param_value, silent=False):
         """Send feedback to the controller with the current parameter value"""
@@ -698,6 +688,37 @@ class Console1ProQ(ControlSurface):
         # Skip if we're in the middle of sending feedback to avoid loops
         if self._sending_feedback:
             return
+
+        # Special logging for hardware Q controls (CC 90 and CC 87)
+        cc_number = None
+        for name, cc in self._param_cc_map.items():
+            if name == param_name:
+                cc_number = cc
+                break
+        
+        # Extra logging for the specific Q controls we care about
+        if cc_number in [90, 87, 94, 84]:  # The CCs used for Q parameters
+            q_param = param_name
+            self.log_message(f"Q CONTROL DETECTED: CC {cc_number}, Parameter {q_param}, Value {value}")
+        
+        # Log incoming CC values for all encoders to identify the actual CCs being used
+        if cc_number is not None:
+            self.log_message(f"MIDI RECEIVED: Parameter {param_name}, CC {cc_number}, Value {value}")
+        
+        # Extra debugging for Q parameters
+        if "Q" in param_name:
+            self.log_message(f"Q ENCODER TURNED: {param_name} with value {value}")
+            self.log_message(f"Q ENCODER CHECK: param in _param_refs = {param_name in self._param_refs}")
+            self.log_message(f"Q ENCODER CHECK: _proq3_device exists = {self._proq3_device is not None}")
+            
+            # Get all known Q parameters
+            all_q_params = [name for name in self._param_cc_map if "Q" in name]
+            self.log_message(f"ALL Q PARAMS: {all_q_params}")
+            
+            # Log MIDI CC numbers for all Q parameters
+            for q_param in all_q_params:
+                if q_param in self._param_cc_map:
+                    self.log_message(f"   {q_param} is mapped to CC {self._param_cc_map[q_param]}")
         
         # Handle track controls
         if param_name == "Volume":
@@ -712,11 +733,6 @@ class Console1ProQ(ControlSurface):
             self._handle_track_mute(value)
             return
         
-        # Handle Q parameters (special buttons)
-        if "Q" in param_name and param_name in self._param_refs:
-            self._handle_q_parameter(param_name, value)
-            return
-        
         # Handle Device On parameter (Bypass button)
         if param_name == "Device On" and param_name in self._param_refs:
             self._handle_bypass_parameter(param_name, value)
@@ -724,8 +740,13 @@ class Console1ProQ(ControlSurface):
         
         # Handle Pro-Q 3 parameters only if device exists
         if self._proq3_device and param_name in self._param_refs:
+            # Extra debug for Q parameters
+            if "Q" in param_name:
+                self.log_message(f"CALLING _handle_parameter_change for {param_name}")
             self._handle_parameter_change(param_name, value)
         else:
+            if "Q" in param_name:
+                self.log_message(f"NOT HANDLING Q PARAMETER: device exists = {self._proq3_device is not None}, param in refs = {param_name in self._param_refs}")
             self.debug_log(f"No Pro-Q 3 device or {param_name} parameter found")
 
     def _handle_track_volume(self, value):
@@ -769,10 +790,22 @@ class Console1ProQ(ControlSurface):
 
     def _handle_parameter_change(self, param_name, value):
         """Handle parameter value changes from encoder movement"""
+        # Log all parameter changes for debugging
+        self.log_message(f"Parameter change: {param_name}, MIDI value: {value}")
+        
+        # Extra specific logging for Q parameters to ensure continuous control
+        if "Q" in param_name:
+            # Log raw values for debugging
+            self.log_message(f"Q PARAMETER CHANGE: {param_name}, MIDI value: {value}, raw")
+            
         # Set flag to indicate the parameter change came from our controller
         self._parameter_value_changed_from_controller = True
         
-        # Get the parameter
+        # Get the parameter (or skip if not found)
+        if param_name not in self._param_refs:
+            self.log_message(f"ERROR: Parameter {param_name} not found in references")
+            return
+            
         param = self._param_refs[param_name]
         
         # Special handling for shape parameters (3-step toggle buttons)
@@ -780,6 +813,7 @@ class Console1ProQ(ControlSurface):
             self._handle_shape_parameter(param_name, value, param)
             return
         
+        # All other parameters (including Q) are handled as continuous controls
         if self.EMULATE_RELATIVE_MODE:
             # ------ RELATIVE MODE ------
             # Determine the direction of movement
@@ -801,6 +835,10 @@ class Console1ProQ(ControlSurface):
             # Update our tracking value
             self._current_param_values[param_name] = new_value
             
+            # Extra logging for Q parameters
+            if "Q" in param_name:
+                self.log_message(f"Q PARAMETER RELATIVE: {param_name}, Dir: {change_direction}, New: {new_value:.3f}")
+            
             # Log the change if debug is enabled
             self.debug_log(f"Encoder {param_name} - Direction: {change_direction}, " + 
                           f"Old value: {current_value:.3f}, New value: {new_value:.3f}")
@@ -815,11 +853,20 @@ class Console1ProQ(ControlSurface):
             # Update our tracking value
             self._current_param_values[param_name] = new_value
             
+            # Extra logging for Q parameters
+            if "Q" in param_name:
+                self.log_message(f"Q PARAMETER ABSOLUTE: {param_name}, MIDI: {value}, New: {new_value:.3f}")
+            
             # Log the change if debug is enabled
             self.debug_log(f"Encoder {param_name} - Absolute value: {value}, Param value: {new_value:.3f}")
         
         # Update the parameter in Live
         param.value = new_value
+        
+        # Extra verification for Q parameters - log the actual value set in Live
+        if "Q" in param_name:
+            actual_value = param.value
+            self.log_message(f"Q PARAMETER FINAL: {param_name}, Final value: {actual_value:.3f}")
 
     def _handle_shape_parameter(self, param_name, value, param):
         """Special handling for shape parameters (3-step toggle buttons)"""
@@ -912,51 +959,6 @@ class Console1ProQ(ControlSurface):
         actual_value = param.value
         if abs(actual_value - shape_value) > 0.01:
             self.log_message(f"NOTE: Pro-Q 3 adjusted value to {actual_value} (different from requested {shape_value})")
-
-    def _handle_q_parameter(self, param_name, value):
-        """Special handling for Q parameters from buttons"""
-        # Store the raw MIDI value
-        self._last_midi_values[param_name] = value
-        
-        # Log the incoming MIDI value
-        self.log_message(f"RECEIVED: {param_name} MIDI value {value}")
-        
-        # Get the parameter
-        param = self._param_refs[param_name]
-        
-        # Only respond to higher values to avoid multiple triggers when releasing the button
-        if value < 64:  # Ignore button release (lower values)
-            return
-        
-        # Get current Q value
-        current_value = self._current_param_values[param_name]
-        
-        # Define Q presets (adjust these based on testing)
-        # Q values typically range from narrow (high value) to wide (low value)
-        Q_NARROW = 1.0   # Narrow Q
-        Q_MEDIUM = 0.5   # Medium Q
-        Q_WIDE = 0.1     # Wide Q
-        
-        # Cycle through Q presets each time the button is pressed
-        if current_value >= 0.8:     # If current Q is narrow or close to it
-            new_value = Q_MEDIUM     # Switch to medium
-            q_label = "Medium"
-        elif current_value >= 0.3:   # If current Q is medium or close to it
-            new_value = Q_WIDE       # Switch to wide
-            q_label = "Wide"
-        else:                        # If current Q is wide or close to it
-            new_value = Q_NARROW     # Switch to narrow
-            q_label = "Narrow"
-        
-        # Update our tracking value
-        self._current_param_values[param_name] = new_value
-        
-        # Log the Q change
-        self.log_message(f"SETTING {param_name} to {q_label} (Value: {new_value})")
-        
-        # Update the parameter in Live
-        self._parameter_value_changed_from_controller = True
-        param.value = new_value
 
     def _handle_bypass_parameter(self, param_name, value):
         """Special handling for the Device On (bypass) parameter"""
@@ -1271,10 +1273,8 @@ class Console1ProQ(ControlSurface):
         self.log_message(f"- MIDI {SHAPE_CUT} (Cut)   → ProQ3 4.0 (High Cut)")
         
         # Q button mappings
-        self.log_message("Q Button Mappings:")
-        self.log_message("- CC 90 → Band 3 Q")
-        self.log_message("- CC 87 → Band 4 Q")
-        self.log_message("- Q Values: 0.1 (Wide), 0.5 (Medium), 1.0 (Narrow)")
+        self.log_message("Q Control Mappings:")
+        self.log_message("- Using continuous mode for all Q parameters")
         
         # Bypass button mapping
         self.log_message("Bypass Button Mapping:")
