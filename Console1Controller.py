@@ -41,6 +41,9 @@ class Console1Controller(ControlSurface):
         # Parameter references - will be populated when device is found
         self._param_refs = {}
         
+        # Track reference - will be populated when track is found
+        self._current_track = None
+        
         # Encoder references - will be populated with actual SliderElements
         self._encoders = {}
         
@@ -120,10 +123,11 @@ class Console1Controller(ControlSurface):
                 for device in track.devices:
                     if device.name == "Pro-Q 3":
                         self._proq3_device = device
+                        self._current_track = track
                         self.log_message("Found Pro-Q 3 on track:", track.name)
                         
                         # Find parameters and set up listeners
-                        self._setup_parameters_for_device(device)
+                        self._setup_parameters_for_device(device, track)
                         
                         # Select this track to make it visible to the user
                         self.song().view.selected_track = track
@@ -138,10 +142,11 @@ class Console1Controller(ControlSurface):
                 for device in track.devices:
                     if device.name == "Pro-Q 3":
                         self._proq3_device = device
+                        self._current_track = track
                         self.log_message("Found Pro-Q 3 on return track:", track.name)
                         
                         # Find parameters and set up listeners
-                        self._setup_parameters_for_device(device)
+                        self._setup_parameters_for_device(device, track)
                         
                         # Select this track to make it visible to the user
                         self.song().view.selected_track = track
@@ -156,10 +161,11 @@ class Console1Controller(ControlSurface):
             for device in master_track.devices:
                 if device.name == "Pro-Q 3":
                     self._proq3_device = device
+                    self._current_track = master_track
                     self.log_message("Found Pro-Q 3 on master track")
                     
                     # Find parameters and set up listeners
-                    self._setup_parameters_for_device(device)
+                    self._setup_parameters_for_device(device, master_track)
                     
                     # Select master track to make it visible to the user
                     self.song().view.selected_track = master_track
@@ -173,7 +179,7 @@ class Console1Controller(ControlSurface):
             self.log_message("Error in global device search:", str(e))
             return False
 
-    def _setup_parameters_for_device(self, device):
+    def _setup_parameters_for_device(self, device, track=None):
         """Find all needed parameters for the device and set up listeners"""
         self._param_refs = {}  # Reset parameter references
         
@@ -183,8 +189,31 @@ class Console1Controller(ControlSurface):
         try:
             self.debug_log("Setting up parameters for Pro-Q 3")
             
-            # Find all parameters we need
+            # Store track reference for volume control
+            if track is not None:
+                self._current_track = track
+                
+                # Set up volume parameter if needed
+                if "Volume" in self._param_cc_map and track.mixer_device and hasattr(track.mixer_device, 'volume'):
+                    volume_param = track.mixer_device.volume
+                    self._param_refs["Volume"] = volume_param
+                    current_value = volume_param.value
+                    self._current_param_values["Volume"] = current_value
+                    self.debug_log(f"Found Volume parameter, current value: {current_value}")
+                    
+                    # Send feedback to controller with current parameter value (silent)
+                    if "Volume" in self._encoders:
+                        self._send_parameter_feedback("Volume", current_value, silent=True)
+                    
+                    # Add value listener to the parameter to update when Live changes the value
+                    self._setup_parameter_listener("Volume", volume_param)
+            
+            # Find all ProQ3 parameters we need
             for param_name in self._param_cc_map.keys():
+                # Skip Volume parameter as it's handled separately
+                if param_name == "Volume":
+                    continue
+                    
                 for param in device.parameters:
                     if param.name == param_name:
                         self._param_refs[param_name] = param
@@ -202,7 +231,7 @@ class Console1Controller(ControlSurface):
                         break
                 
                 # Check if we found the parameter
-                if param_name not in self._param_refs:
+                if param_name not in self._param_refs and param_name != "Volume":
                     self.debug_log(f"Could not find {param_name} parameter")
             
             # Log summary of found parameters
@@ -279,7 +308,23 @@ class Console1Controller(ControlSurface):
         
         try:
             track = self.song().view.selected_track
+            self._current_track = track
             self.debug_log("Selected track:", track.name)
+            
+            # Set up volume parameter if needed
+            if "Volume" in self._param_cc_map and track.mixer_device and hasattr(track.mixer_device, 'volume'):
+                volume_param = track.mixer_device.volume
+                self._param_refs["Volume"] = volume_param
+                current_value = volume_param.value
+                self._current_param_values["Volume"] = current_value
+                self.debug_log(f"Found Volume parameter, current value: {current_value}")
+                
+                # Send feedback to controller with current parameter value (silent)
+                if "Volume" in self._encoders:
+                    self._send_parameter_feedback("Volume", current_value, silent=True)
+                
+                # Add value listener to the parameter to update when Live changes the value
+                self._setup_parameter_listener("Volume", volume_param)
             
             # Find Pro-Q 3 in selected track's devices
             for device in track.devices:
@@ -288,11 +333,12 @@ class Console1Controller(ControlSurface):
                     self.log_message("Found Pro-Q 3 on track:", track.name)
                     
                     # Find parameters and set up listeners
-                    self._setup_parameters_for_device(device)
+                    self._setup_parameters_for_device(device, track)
                     break
             
             if not self._proq3_device:
                 self.debug_log("Could not find Pro-Q 3 device on track:", track.name)
+                # Even if no ProQ3 exists, we still have the Volume parameter set up above
         except Exception as e:
             self.log_message("Error in track change handler:", str(e))
 

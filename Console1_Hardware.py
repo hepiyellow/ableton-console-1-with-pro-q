@@ -25,22 +25,24 @@ KNOB_LOW_PASS = 105  # Low Pass Filter (Band 6)
 KNOB_HIGH_PASS = 103  # High Pass Filter (Band 1)
 
 # Global Controls
-KNOB_GAIN_SCALE = 107  # Gain Scale control
+KNOB_GAIN = 107  # Gain control
+KNOB_VOLUME = 7      # Volume control
 
 # Human-readable names for each control
 CONTROL_NAMES = {
-    KNOB_EQ1_FREQ: "Band 2 Frequency",
-    KNOB_EQ2_FREQ: "Band 3 Frequency",
-    KNOB_EQ3_FREQ: "Band 4 Frequency",
-    KNOB_EQ4_FREQ: "Band 5 Frequency",
+    KNOB_EQ1_FREQ: "EQ Band 1 Frequency",
+    KNOB_EQ2_FREQ: "EQ Band 2 Frequency",
+    KNOB_EQ3_FREQ: "EQ Band 3 Frequency",
+    KNOB_EQ4_FREQ: "EQ Band 4 Frequency",
     
-    KNOB_EQ1_GAIN: "Band 2 Gain",
-    KNOB_EQ2_GAIN: "Band 3 Gain",
-    KNOB_EQ3_GAIN: "Band 4 Gain",
-    KNOB_EQ4_GAIN: "Band 5 Gain",
+    KNOB_EQ1_GAIN: "EQ Band 1 Gain",
+    KNOB_EQ2_GAIN: "EQ Band 2 Gain",
+    KNOB_EQ3_GAIN: "EQ Band 3 Gain",
+    KNOB_EQ4_GAIN: "EQ Band 4 Gain",
     
-    KNOB_LOW_PASS: "Band 6 Frequency (Low Pass)",
-    KNOB_HIGH_PASS: "Band 1 Frequency (High Pass)",
+    KNOB_LOW_PASS: "Low Pass Frequency",
+    KNOB_HIGH_PASS: "High Pass Frequency",
     
-    KNOB_GAIN_SCALE: "Gain Scale"
+    KNOB_GAIN: "Gain",
+    KNOB_VOLUME: "Volume"
 } 
