@@ -15,24 +15,30 @@ MIDI_CHANNEL = CONSOLE1_MIDI_CHANNEL
 
 # Combined parameter dictionary
 PARAMETER_CC_MAP = {
-    # Frequency parameters
-    "Band 1 Frequency": KNOB_EQ1_FREQ,
-    "Band 2 Frequency": KNOB_EQ2_FREQ,
-    "Band 3 Frequency": KNOB_EQ3_FREQ,
-    "Band 4 Frequency": KNOB_EQ4_FREQ,
+    # Band 1 is now High Pass
+    "Band 1 Frequency": KNOB_HIGH_PASS,
     
-    # Gain parameters
-    "Band 1 Gain": KNOB_EQ1_GAIN,
-    "Band 2 Gain": KNOB_EQ2_GAIN,
-    "Band 3 Gain": KNOB_EQ3_GAIN,
-    "Band 4 Gain": KNOB_EQ4_GAIN,
+    # Frequency parameters (now bands 2-5)
+    "Band 2 Frequency": KNOB_EQ1_FREQ,
+    "Band 3 Frequency": KNOB_EQ2_FREQ,
+    "Band 4 Frequency": KNOB_EQ3_FREQ,
+    "Band 5 Frequency": KNOB_EQ4_FREQ,
+    
+    # Band 6 is now Low Pass
+    "Band 6 Frequency": KNOB_LOW_PASS,
+    
+    # Gain parameters (now bands 2-5)
+    "Band 2 Gain": KNOB_EQ1_GAIN,
+    "Band 3 Gain": KNOB_EQ2_GAIN,
+    "Band 4 Gain": KNOB_EQ3_GAIN,
+    "Band 5 Gain": KNOB_EQ4_GAIN,
     
     # Additional parameters that could be mapped
     # Uncomment to enable these mappings
-    # "Band 1 Q": KNOB_EQ1_Q,
-    # "Band 2 Q": KNOB_EQ2_Q,
-    # "Band 3 Q": KNOB_EQ3_Q,
-    # "Band 4 Q": KNOB_EQ4_Q,
+    # "Band 2 Q": KNOB_EQ1_Q,
+    # "Band 3 Q": KNOB_EQ2_Q,
+    # "Band 4 Q": KNOB_EQ3_Q,
+    # "Band 5 Q": KNOB_EQ4_Q,
 }
 
 # Create a reverse mapping for debugging/display purposes
