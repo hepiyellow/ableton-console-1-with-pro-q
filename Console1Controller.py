@@ -32,6 +32,7 @@ class Console1Controller(ControlSurface):
         # Store Pro-Q 3 device reference
         self._proq3_device = None
         self._has_track_listener = False
+        self._has_device_listeners = False  # Track if device listeners are connected
         self._sending_feedback = False  # Flag to prevent feedback loops
         self._has_param_listener = False  # Track if parameter listener is connected
         self._parameter_value_changed_from_controller = False  # Flag to track source of value changes
@@ -116,6 +117,9 @@ class Console1Controller(ControlSurface):
         if not self._proq3_device:
             self.debug_log("Pro-Q 3 not found on selected track, searching all tracks")
             self._find_proq3_on_any_track()
+        
+        # Set up device listeners to detect when Pro-Q 3 is added later
+        self._setup_device_listeners()
 
     def _find_proq3_in_device(self, device, track):
         """Recursively search for Pro-Q 3 within a device (for racks)"""
@@ -801,6 +805,127 @@ class Console1Controller(ControlSurface):
         self._parameter_value_changed_from_controller = True
         param.value = new_value
 
+    def _setup_device_listeners(self):
+        """Setup device listeners for all tracks to detect when Pro-Q 3 is added"""
+        try:
+            # First remove any existing device listeners
+            self._remove_device_listeners()
+            
+            # Add device listeners to all tracks
+            for track in self.song().tracks:
+                track.add_devices_listener(self._on_devices_changed)
+                self.debug_log(f"Added device listener to track: {track.name}")
+            
+            # Also add to return tracks
+            for track in self.song().return_tracks:
+                track.add_devices_listener(self._on_devices_changed)
+                self.debug_log(f"Added device listener to return track: {track.name}")
+                
+            # And master track
+            self.song().master_track.add_devices_listener(self._on_devices_changed)
+            self.debug_log("Added device listener to master track")
+            
+            self._has_device_listeners = True
+            self.log_message("Device listeners set up on all tracks")
+            
+        except Exception as e:
+            self.log_message("Error setting up device listeners:", str(e))
+
+    def _remove_device_listeners(self):
+        """Safely remove all device listeners"""
+        try:
+            if self._has_device_listeners:
+                # Remove from all tracks
+                for track in self.song().tracks:
+                    try:
+                        track.remove_devices_listener(self._on_devices_changed)
+                    except:
+                        pass  # Ignore errors if listener wasn't registered
+                
+                # Remove from return tracks
+                for track in self.song().return_tracks:
+                    try:
+                        track.remove_devices_listener(self._on_devices_changed)
+                    except:
+                        pass
+                    
+                # Remove from master track
+                try:
+                    self.song().master_track.remove_devices_listener(self._on_devices_changed)
+                except:
+                    pass
+                
+                self._has_device_listeners = False
+                self.debug_log("Removed all device listeners")
+            
+        except Exception as e:
+            self.log_message("Error removing device listeners:", str(e))
+
+    def _on_devices_changed(self):
+        """Called when devices are added or removed from any track"""
+        self.log_message("Devices changed on a track, checking for Pro-Q 3")
+        
+        # Check if our current Pro-Q 3 device has been removed
+        if self._proq3_device:
+            # Get the track that had our Pro-Q 3
+            track = self._current_track
+            
+            # Check if our Pro-Q 3 still exists in the track's devices
+            device_still_exists = False
+            
+            if track:
+                # First check direct devices
+                for device in track.devices:
+                    if device == self._proq3_device or (hasattr(device, 'name') and device.name == "Pro-Q 3" and self._proq3_device.name == "Pro-Q 3"):
+                        device_still_exists = True
+                        break
+                        
+                # If not found directly, check rack devices recursively
+                if not device_still_exists and track.devices:
+                    for device in track.devices:
+                        if hasattr(device, 'chains') and self._check_device_in_rack(device, self._proq3_device):
+                            device_still_exists = True
+                            break
+            
+            # If our Pro-Q 3 has been removed, clean up
+            if not device_still_exists:
+                self.log_message("Pro-Q 3 device has been removed, cleaning up")
+                self._remove_parameter_listeners()
+                self._proq3_device = None
+                
+                # Keep only the Volume parameter if it exists
+                if "Volume" in self._param_refs:
+                    volume_param = self._param_refs["Volume"]
+                    self._param_refs = {"Volume": volume_param}
+                else:
+                    self._param_refs = {}
+                    
+                # Notify user
+                self.log_message("Pro-Q 3 connection lost. Only track volume control remains active.")
+        
+        # If we don't have a Pro-Q 3 device, schedule a search after a short delay
+        # This gives the device time to fully initialize its parameters
+        if not self._proq3_device:
+            self.log_message("Scheduling Pro-Q 3 search with delay to allow parameters to initialize")
+            self.schedule_message(2, self._delayed_proq3_search)  # ~100ms delay (2 ticks)
+
+    def _check_device_in_rack(self, rack_device, target_device):
+        """Recursively check if target_device exists in a rack device"""
+        if not hasattr(rack_device, 'chains'):
+            return False
+        
+        for chain in rack_device.chains:
+            for device in chain.devices:
+                # Direct match
+                if device == target_device or (hasattr(device, 'name') and device.name == "Pro-Q 3" and target_device.name == "Pro-Q 3"):
+                    return True
+                
+                # Recursive check if this is a nested rack
+                if hasattr(device, 'chains') and self._check_device_in_rack(device, target_device):
+                    return True
+                
+        return False
+
     def disconnect(self):
         # Remove encoder listeners
         for param_name, encoder in self._encoders.items():
@@ -812,6 +937,9 @@ class Console1Controller(ControlSurface):
         
         # Remove parameter listeners
         self._remove_parameter_listeners()
+        
+        # Remove device listeners
+        self._remove_device_listeners()
         
         # Remove track change listener
         try:
@@ -849,3 +977,23 @@ class Console1Controller(ControlSurface):
         self.log_message("Bypass Button Mapping:")
         self.log_message(f"- CC {BUTTON_EQ_BYPASS} → Device On/Bypass")
         self.log_message("-----------------------------------")
+
+    def _delayed_proq3_search(self):
+        """Search for Pro-Q 3 with a delay to allow parameters to initialize"""
+        self.log_message("Running delayed Pro-Q 3 search")
+        found = self._find_proq3_on_any_track()
+        
+        # If still not found, try again with a longer delay
+        if not found:
+            self.log_message("Pro-Q 3 not found, scheduling another search with longer delay")
+            self.schedule_message(10, self._final_proq3_search)  # ~500ms delay (10 ticks)
+
+    def _final_proq3_search(self):
+        """Final attempt to find Pro-Q 3 after allowing time for initialization"""
+        self.log_message("Running final Pro-Q 3 search")
+        found = self._find_proq3_on_any_track()
+        
+        if not found:
+            self.log_message("Pro-Q 3 still not found after multiple attempts")
+        else:
+            self.log_message("Pro-Q 3 found after delayed search")
