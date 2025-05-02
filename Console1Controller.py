@@ -11,6 +11,10 @@ class Console1Controller(ControlSurface):
     __doc__ = " Console1Controller script that controls Pro-Q 3 parameters with encoders "
 
     _active_instances = []
+    
+    # Relative movement settings
+    PARAMETER_STEP_SIZE = 0.01  # 1% change per encoder step
+    FINE_STEP_SIZE = 0.001      # 0.1% change for fine control (not currently used)
 
     def _combine_active_instances():
         pass
@@ -37,8 +41,11 @@ class Console1Controller(ControlSurface):
         # Encoder references - will be populated with actual SliderElements
         self._encoders = {}
         
-        # Last values for each encoder
-        self._last_values = {}
+        # Last MIDI values received for each encoder
+        self._last_midi_values = {}
+        
+        # Current parameter percentage values (0.0-1.0)
+        self._current_param_values = {}
         
         with self.component_guard():
             # Define the MIDI channel to listen on (from mapping file)
@@ -69,8 +76,9 @@ class Console1Controller(ControlSurface):
             # Store the encoder in our dictionary
             self._encoders[param_name] = encoder
             
-            # Initialize last value
-            self._last_values[param_name] = -1
+            # Initialize last values
+            self._last_midi_values[param_name] = -1
+            self._current_param_values[param_name] = 0.0
             
             # Add value listener with a closure to capture the parameter name
             def create_listener(param_name=param_name):
@@ -175,6 +183,7 @@ class Console1Controller(ControlSurface):
                     if param.name == param_name:
                         self._param_refs[param_name] = param
                         current_value = param.value
+                        self._current_param_values[param_name] = current_value
                         self.debug_log(f"Found {param_name} parameter, current value: {current_value}")
                         
                         # Send feedback to controller with current parameter value (silent)
@@ -289,8 +298,9 @@ class Console1Controller(ControlSurface):
                 self._parameter_value_changed_from_controller = False
                 return
                 
-            # Get the current value
+            # Get the current value and update our tracking
             current_value = self._param_refs[param_name].value
+            self._current_param_values[param_name] = current_value
             
             # Send feedback to controller with the updated value
             self._send_parameter_feedback(param_name, current_value)
@@ -318,41 +328,81 @@ class Console1Controller(ControlSurface):
             self._encoders[param_name].send_value(midi_value)
             
             # Update last value to avoid ping-pong
-            self._last_values[param_name] = midi_value
+            self._last_midi_values[param_name] = midi_value
             
             self._sending_feedback = False
         except Exception as e:
             self._sending_feedback = False
             self.log_message(f"Error sending feedback for {param_name}:", str(e))
 
+    def _determine_relative_change(self, param_name, new_value):
+        """Determine the relative change direction based on current and new MIDI values"""
+        last_value = self._last_midi_values[param_name]
+        
+        # If we don't have a previous value, just store this one and return no change
+        if last_value == -1:
+            self._last_midi_values[param_name] = new_value
+            return 0
+        
+        # Store the new value
+        self._last_midi_values[param_name] = new_value
+        
+        # Determine direction of change
+        if new_value > last_value:
+            # Moving up
+            return 1
+        elif new_value < last_value:
+            # Moving down
+            return -1
+        
+        # Handle wraparound cases
+        if new_value == 0 and last_value == 0:
+            # Repeated zero usually means going down past zero
+            return -1
+        elif new_value == 127 and last_value == 127:
+            # Repeated 127 usually means going up past 127
+            return 1
+            
+        # No change detected
+        return 0
+
     def _on_encoder_value(self, param_name, value):
-        """Called when an encoder is turned"""
+        """Called when an encoder is turned, handling as relative movements"""
         # Skip if we're in the middle of sending feedback to avoid loops
         if self._sending_feedback:
             return
             
         # If we have found the parameter
         if self._proq3_device and param_name in self._param_refs:
+            # Determine the direction of movement
+            change_direction = self._determine_relative_change(param_name, value)
+            
+            # Skip if no change detected
+            if change_direction == 0:
+                return
+            
             # Set flag to indicate the parameter change came from our controller
             self._parameter_value_changed_from_controller = True
             
-            # Get the parameter
+            # Get the parameter and its current value
             param = self._param_refs[param_name]
+            current_value = self._current_param_values[param_name]
             
-            # Calculate the change from the last value
-            change = 0
-            if self._last_values[param_name] >= 0:
-                change = value - self._last_values[param_name]
+            # Calculate the new value with the appropriate step size
+            new_value = current_value + (change_direction * self.PARAMETER_STEP_SIZE)
             
-            # Update last value
-            self._last_values[param_name] = value
+            # Clamp to 0.0-1.0 range
+            new_value = max(0.0, min(1.0, new_value))
             
-            # Scale the encoder value (0-127) to parameter range
-            # Assuming parameter range is 0.0 to 1.0
-            param_value = value / 127.0
+            # Update our tracking value
+            self._current_param_values[param_name] = new_value
+            
+            # Log the change if debug is enabled
+            self.debug_log(f"Encoder {param_name} - Direction: {change_direction}, " + 
+                          f"Old value: {current_value:.3f}, New value: {new_value:.3f}")
             
             # Update the parameter
-            param.value = param_value
+            param.value = new_value
         else:
             self.debug_log(f"No Pro-Q 3 device or {param_name} parameter found")
 
