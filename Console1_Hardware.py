@@ -30,9 +30,20 @@ KNOB_EQ4_Q = 84  # Band 5 Q (previously Band 4) - CC 84
 KNOB_LOW_PASS = 105  # Low Pass Filter (Band 6)
 KNOB_HIGH_PASS = 103  # High Pass Filter (Band 1)
 
+# Shape Section
+KNOB_SHAPE_RELEASE = 56
+KNOB_SHAPE_SUSTAIN = 55
+KNOB_SHAPE_PUNCH = 57
+KNOB_SHAPE_GATE = 54
+BUTTON_SHAPE_HARD_GATE = 59
+
 # Global Controls
 KNOB_GAIN = 107  # Gain control
 KNOB_VOLUME = 7      # Volume control
+BUTTON_FILTERS_TO_COMPRESSOR = 61
+BUTTON_PHASE_INV = 108
+BUTTON_PRESET = 58
+
 
 # Shape Button Definitions
 # -----------------------
@@ -62,6 +73,23 @@ SHAPE_CUT = 127
 
 # Human-readable names for each control
 CONTROL_NAMES = {
+    # Gain Section
+    KNOB_GAIN: "Gain",
+    BUTTON_FILTERS_TO_COMPRESSOR: "Filters to Compressor",
+    BUTTON_PHASE_INV: "Phase Invert",
+    BUTTON_PRESET: "Preset",
+
+    KNOB_LOW_PASS: "Low Pass Frequency",
+    KNOB_HIGH_PASS: "High Pass Frequency",
+    
+    # Shape Section
+    KNOB_SHAPE_RELEASE: "Release",
+    KNOB_SHAPE_SUSTAIN: "Sustain",
+    KNOB_SHAPE_PUNCH: "Punch",
+    KNOB_SHAPE_GATE: "Gate",
+    BUTTON_SHAPE_HARD_GATE: "Hard Gate",
+
+    # EQ Section
     KNOB_EQ1_FREQ: "EQ Band 1 Frequency",
     KNOB_EQ2_FREQ: "EQ Band 2 Frequency",
     KNOB_EQ3_FREQ: "EQ Band 3 Frequency",
@@ -77,8 +105,6 @@ CONTROL_NAMES = {
     KNOB_EQ3_Q: "EQ Band 3 Q",
     KNOB_EQ4_Q: "EQ Band 4 Q",
     
-    KNOB_LOW_PASS: "Low Pass Frequency",
-    KNOB_HIGH_PASS: "High Pass Frequency",
     
     BUTTON_EQ1_SHAPE: "EQ Band 1 Shape",
     BUTTON_EQ4_SHAPE: "EQ Band 4 Shape",
@@ -91,6 +117,5 @@ CONTROL_NAMES = {
     BUTTON_TRACK_SOLO: "Track Solo",
     BUTTON_TRACK_MUTE: "Track Mute",
     
-    KNOB_GAIN: "Gain",
     KNOB_VOLUME: "Volume"
 } 
