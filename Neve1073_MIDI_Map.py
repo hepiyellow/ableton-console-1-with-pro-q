@@ -25,7 +25,7 @@ PARAMETER_CC_MAP = {
     "LF Freq": {'cc': KNOB_EQ2_FREQ, 'invert': False},  # Low frequency control - INVERTED
     "LF Gain": {'cc': KNOB_EQ2_GAIN, 'invert': False},  # Low gain control
     
-    "High Pass": {'cc': KNOB_EQ1_GAIN, 'invert': False},  # High-pass filter
+    "HP Filt": {'cc': KNOB_EQ1_GAIN, 'invert': False},  # High-pass filter
     
     # Input Section
     "Line Gain": {'cc': KNOB_GAIN, 'invert': False},  # Input gain control
