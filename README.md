@@ -1,4 +1,4 @@
-# Console1-Pro-Q
+# Console1DeviceControl
 
 A MIDI remote script for Ableton Live that allows a Console-1 hardware controller to control Pro-Q 3 EQ parameters and track functions.
 
@@ -45,12 +45,15 @@ Just drag this device into your Ableton Live set and place it on any track you w
 
 1. Place the entire folder in your Ableton Live Remote Scripts directory:
 
-   - macOS: `~/Music/Ableton/User Library/Remote Scripts/Console1-Pro-Q/`
-   - Windows: `\Users\[username]\Documents\Ableton\User Library\Remote Scripts\Console1-Pro-Q\`
+   - macOS: `~/Music/Ableton/User Library/Remote Scripts/# Console1DeviceControl
+/`
+   - Windows: `\Users\[username]\Documents\Ableton\User Library\Remote Scripts\# Console1DeviceControl
+\`
 
 2. Start Ableton Live
 3. Go to Preferences > Link MIDI
-4. Select "Console1-Pro-Q" from the Control Surface dropdown menu
+4. Select "# Console1DeviceControl
+   " from the Control Surface dropdown menu
 5. Set the Input to your Console 1 hardware controller
 6. Set the Output to your Console 1 hardware controller
 7. Make sure that Track and Remote are enabled for both Input and Output
