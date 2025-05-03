@@ -473,6 +473,16 @@ class Console1ProQ(ControlSurface):
                 
             self._sending_feedback = True
             
+            # Get the parameter to check if it's discrete
+            param = self._param_refs.get(param_name)
+            
+            # Safely check if parameter is discrete (quantized with value_items)
+            is_discrete = False
+            try:
+                is_discrete = param and hasattr(param, 'is_quantized') and param.is_quantized and hasattr(param, 'value_items')
+            except Exception as e:
+                self.log_message(f"Error checking if {param_name} is discrete for feedback: {str(e)}")
+            
             # Special handling for shape parameters to translate Pro-Q 3 values to Console1 values
             if "Shape" in param_name and self._resolved_device_type == "Pro-Q 3":
                 # Get the current Pro-Q 3 raw value
@@ -481,6 +491,19 @@ class Console1ProQ(ControlSurface):
                 
                 # Translate to MIDI value
                 midi_value = self._translate_shape_to_midi(param_name, param_value)
+            elif is_discrete:
+                # Handle discrete parameter feedback
+                # Get the total number of possible values
+                num_values = len(param.value_items)
+                
+                # Get the current index (make sure it's an integer)
+                current_index = int(param_value)
+                
+                # Map the index to a MIDI value (0-127)
+                # This distributes the indices evenly across the MIDI range
+                midi_value = int((current_index * 127.0) / (num_values - 1)) if num_values > 1 else 0
+                
+                self.log_message(f"DISCRETE FEEDBACK: {param_name}, Index: {current_index}, Items: {num_values}, MIDI: {midi_value}")
             else:
                 # Convert normal parameter value (0.0-1.0) to MIDI value (0-127)
                 midi_value = int(param_value * 127)
@@ -995,8 +1018,8 @@ class Console1ProQ(ControlSurface):
                             self.debug_log(f"Found {param_name} parameter, value: {current_value}")
                         
                         # Send feedback to controller with current parameter value (silent)
-                        if param_name in self._encoders:
-                            self._send_parameter_feedback(param_name, current_value, silent=True)
+                        # Send feedback for all parameters - we use param_cc_map to find CC
+                        self._send_parameter_feedback(param_name, current_value, silent=True)
                         
                         # Add value listener to the parameter to update when Live changes the value
                         self._setup_parameter_listener(param_name, param)
@@ -1019,6 +1042,16 @@ class Console1ProQ(ControlSurface):
             found_params = sum(1 for name in self._param_refs if name != "Volume")
             total_params = len(self._param_cc_map) - (1 if "Volume" in self._param_cc_map else 0)
             self.log_message(f"Found {found_params} of {total_params} parameters for {device_type}")
+            
+            # Explicitly send feedback for all parameters to update controller
+            self.log_message("Sending initial feedback for all parameters")
+            for param_name, param in self._param_refs.items():
+                if param_name != "Volume":  # Skip Volume as it's handled separately
+                    try:
+                        current_value = param.value
+                        self._send_parameter_feedback(param_name, current_value, silent=False)
+                    except Exception as e:
+                        self.log_message(f"Error sending initial feedback for {param_name}: {str(e)}")
             
             # List which Q parameters were found (Pro-Q 3 specific)
             if device_type == "Pro-Q 3":
@@ -1051,6 +1084,18 @@ class Console1ProQ(ControlSurface):
         # Special handling for shape parameters (3-step toggle buttons) - Pro-Q 3 only
         if "Shape" in param_name and self._resolved_device_type == "Pro-Q 3":
             self._handle_shape_parameter(param_name, value, param)
+            return
+        
+        # Check if this is a discrete parameter (is_quantized and has value_items)
+        is_discrete = False
+        try:
+            is_discrete = hasattr(param, 'is_quantized') and param.is_quantized and hasattr(param, 'value_items')
+        except Exception as e:
+            self.log_message(f"Error checking if {param_name} is discrete: {str(e)}")
+        
+        if is_discrete:
+            # Handle discrete parameter
+            self._handle_discrete_parameter(param_name, value, param)
             return
         
         # All other parameters (including Q) are handled as continuous controls
@@ -1108,6 +1153,50 @@ class Console1ProQ(ControlSurface):
             actual_value = param.value
             self.log_message(f"Q PARAMETER FINAL: {param_name}, Final value: {actual_value:.3f}")
 
+    def _handle_discrete_parameter(self, param_name, value, param):
+        """Handle discrete parameters with value_items"""
+        # Log the parameter being controlled
+        num_values = len(param.value_items)
+        self.log_message(f"DISCRETE PARAMETER: {param_name}, MIDI value: {value}, Items: {num_values}")
+        
+        # Store the MIDI value
+        self._last_midi_values[param_name] = value
+        
+        if self.EMULATE_RELATIVE_MODE:
+            # ------ RELATIVE MODE ------
+            # Get the current index
+            current_index = int(param.value)
+            
+            # Determine the direction of movement
+            change_direction = self._determine_relative_change(param_name, value)
+            
+            # Skip if no change detected
+            if change_direction == 0:
+                return
+                
+            # Calculate the new index
+            new_index = (current_index + change_direction) % num_values
+            
+            # Log the change
+            self.log_message(f"DISCRETE REL: {param_name}, Current: {current_index} → New: {new_index} (of {num_values})")
+            
+            # Update the parameter with the new index
+            param.value = new_index
+        else:
+            # ------ ABSOLUTE MODE ------
+            # Map the MIDI value (0-127) to an index in the available values
+            # This ensures we use the full range of the knob for all possible values
+            index = min(int(value * num_values / 128), num_values - 1)
+            
+            # Log the mapped index
+            self.log_message(f"DISCRETE ABS: {param_name}, MIDI: {value} → Index: {index} (of {num_values})")
+            
+            # Update the parameter in Live
+            param.value = index
+        
+        # Store the current value (as the integer index)
+        self._current_param_values[param_name] = param.value
+            
     def _handle_shape_parameter(self, param_name, value, param):
         """Special handling for shape parameters (3-step toggle buttons)"""
         # Store the raw MIDI value
