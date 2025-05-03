@@ -1,10 +1,10 @@
 import Live
-from .Console1ProQ import Console1ProQ
+from .Console1DeviceControl import Console1DeviceControl
 
 
 def create_instance(c_instance):
-    """ Creates and returns the Console1-Pro-Q controller script """
-    return Console1ProQ(c_instance)
+    """ Creates and returns the Console1DeviceControl controller script """
+    return Console1DeviceControl(c_instance)
 
 # local variables:
 # tab-width: 4

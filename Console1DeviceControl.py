@@ -11,8 +11,8 @@ from .TrackControls_MIDI_Map import TRACK_CONTROL_MAP
 from .APIVision_MIDI_Map import PARAMETER_CC_MAP as API_PARAMETER_CC_MAP
 
 
-class Console1ProQ(ControlSurface):
-    __doc__ = " Console1ProQ script that controls Pro-Q 3 and other device parameters with encoders "
+class Console1DeviceControl(ControlSurface):
+    __doc__ = " Console1DeviceControl script that controls Pro-Q 3 and other device parameters with encoders "
 
     _active_instances = []
     
@@ -32,7 +32,7 @@ class Console1ProQ(ControlSurface):
 
     def __init__(self, c_instance):
         ControlSurface.__init__(self, c_instance)
-        self.log_message("Console1ProQ: Loaded successfully!")
+        self.log_message("Console1DeviceControl: Loaded successfully!")
         
         # Store device references
         self._resolved_device = None
@@ -85,8 +85,8 @@ class Console1ProQ(ControlSurface):
             
             # Log the mode we're in
             mode_str = "relative (stepped)" if self.EMULATE_RELATIVE_MODE else "absolute (0-127)"
-            self.log_message(f"Console1ProQ: Encoder mode set to {mode_str}")
-            self.log_message("Console1ProQ: Setup complete, listening for encoder messages")
+            self.log_message(f"Console1DeviceControl: Encoder mode set to {mode_str}")
+            self.log_message("Console1DeviceControl: Setup complete, listening for encoder messages")
     
     def debug_log(self, *message):
         """Log message only if debug logging is enabled"""
