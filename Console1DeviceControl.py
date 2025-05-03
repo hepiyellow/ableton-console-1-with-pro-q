@@ -197,7 +197,7 @@ class Console1DeviceControl(ControlSurface):
                 return
         
         # If no resolved device, we can't control device parameters
-        if not self._resolved_device:
+        if not self._resolved_device or not self._resolved_device_type:
             self.debug_log(f"No device resolved, ignoring CC {cc_number}")
             return
             
@@ -471,7 +471,7 @@ class Console1DeviceControl(ControlSurface):
         cc_config = None
         
         # Check in the appropriate mapping based on the current device
-        if self._resolved_device_type in self._device_param_maps:
+        if self._resolved_device_type and self._resolved_device_type in self._device_param_maps:
             cc_config = self._device_param_maps[self._resolved_device_type].get(param_name)
         
         if cc_config is None:
@@ -505,7 +505,7 @@ class Console1DeviceControl(ControlSurface):
                 self.log_message(f"Error checking if {param_name} is discrete for feedback: {str(e)}")
             
             # Special handling for shape parameters to translate Pro-Q 3 values to Console1 values
-            if "Shape" in param_name and self._resolved_device_type == "Pro-Q 3":
+            if "Shape" in param_name and self._resolved_device_type == DEVICE_PRO_Q3:
                 # Get the current Pro-Q 3 raw value
                 raw_value = param_value
                 self.log_message(f"FEEDBACK REQUEST: Processing {param_name} with raw value {raw_value}")
@@ -515,29 +515,34 @@ class Console1DeviceControl(ControlSurface):
             elif is_discrete:
                 # Handle discrete parameter feedback
                 # Get the total number of possible values
-                num_values = len(param.value_items)
-                
-                # Get the current index (make sure it's an integer)
-                current_index = int(param_value)
-                
-                # Map the index to a MIDI value (0-127)
-                # This distributes the indices evenly across the MIDI range
-                if num_values > 1:
-                    # Calculate normalized index position (0-1 range)
-                    normalized_index = current_index / float(num_values - 1)
+                if param and hasattr(param, 'value_items'):
+                    num_values = len(param.value_items)
                     
-                    # Apply inversion if needed
-                    if invert:
-                        normalized_index = 1.0 - normalized_index
-                        self.log_message(f"*** DISCRETE FEEDBACK INVERT: {param_name}, Original idx: {current_index}, Normalized: {normalized_index:.3f}")
+                    # Get the current index (make sure it's an integer)
+                    current_index = int(param_value)
+                    
+                    # Map the index to a MIDI value (0-127)
+                    # This distributes the indices evenly across the MIDI range
+                    if num_values > 1:
+                        # Calculate normalized index position (0-1 range)
+                        normalized_index = current_index / float(num_values - 1)
                         
-                    # Convert to MIDI value
-                    midi_value = int(normalized_index * 127.0)
+                        # Apply inversion if needed
+                        if invert:
+                            normalized_index = 1.0 - normalized_index
+                            self.log_message(f"*** DISCRETE FEEDBACK INVERT: {param_name}, Original idx: {current_index}, Normalized: {normalized_index:.3f}")
+                            
+                        # Convert to MIDI value
+                        midi_value = int(normalized_index * 127.0)
+                    else:
+                        midi_value = 0
+                    
+                    invert_str = " (inverted)" if invert else ""
+                    self.log_message(f"DISCRETE FEEDBACK{invert_str}: {param_name}, Index: {current_index}, Items: {num_values}, MIDI: {midi_value}")
                 else:
-                    midi_value = 0
-                
-                invert_str = " (inverted)" if invert else ""
-                self.log_message(f"DISCRETE FEEDBACK{invert_str}: {param_name}, Index: {current_index}, Items: {num_values}, MIDI: {midi_value}")
+                    # Fallback if value_items not available
+                    midi_value = int(param_value * 127)
+                    self.log_message(f"DISCRETE FEEDBACK: Error getting value_items for {param_name}, using raw value: {param_value}")
             else:
                 # Convert normal parameter value (0.0-1.0) to MIDI value (0-127)
                 # Invert the value if needed
@@ -1160,7 +1165,7 @@ class Console1DeviceControl(ControlSurface):
         invert = False
         param_config = None
         
-        if self._resolved_device_type in self._device_param_maps:
+        if self._resolved_device_type and self._resolved_device_type in self._device_param_maps:
             device_param_map = self._device_param_maps[self._resolved_device_type]
             param_config = device_param_map.get(param_name)
             if param_config:
@@ -1259,7 +1264,7 @@ class Console1DeviceControl(ControlSurface):
         # Get the invert flag for this parameter
         invert = False
         
-        if self._resolved_device_type in self._device_param_maps:
+        if self._resolved_device_type and self._resolved_device_type in self._device_param_maps:
             device_param_map = self._device_param_maps[self._resolved_device_type]
             param_config = device_param_map.get(param_name)
             if param_config:
