@@ -8,6 +8,10 @@ CONSOLE1_MIDI_CHANNEL = 0
 # Console 1 Knob Definitions
 # --------------------------
 
+# GLOBAL 
+DISPLAY_ON = 102
+DISPLAY_MODE = 104
+
 # Frequency Knobs
 KNOB_EQ1_FREQ = 92  # Band 2 Frequency (previously Band 1)
 KNOB_EQ2_FREQ = 89  # Band 3 Frequency (previously Band 2)
@@ -36,6 +40,7 @@ KNOB_SHAPE_SUSTAIN = 55
 KNOB_SHAPE_PUNCH = 57
 KNOB_SHAPE_GATE = 54
 BUTTON_SHAPE_HARD_GATE = 59
+BUTTON_SHAPE_BYPASS = 53
 
 # Global Controls
 KNOB_GAIN = 107  # Gain control
@@ -71,8 +76,20 @@ SHAPE_SHELF = 0
 SHAPE_BELL = 63
 SHAPE_CUT = 127
 
+# Compressor
+BUTTON_COMPRESSOR_BYPASS = 46
+KNOB_COMPRESSOR_ATTACK = 51
+KNOB_COMPRESSOR_RELEASE = 48
+KNOB_COMPRESSOR_THRESHOLD = 47
+KNOB_COMPRESSOR_RATIO = 49
+KNOB_COMPRESSOR_PARALLEL = 50
+
 # Human-readable names for each control
 CONTROL_NAMES = {
+    # GLobal
+    DISPLAY_ON: "Display On",
+    DISPLAY_MODE: "Display Mode",
+    
     # Gain Section
     KNOB_GAIN: "Gain",
     BUTTON_FILTERS_TO_COMPRESSOR: "Filters to Compressor",
@@ -88,6 +105,7 @@ CONTROL_NAMES = {
     KNOB_SHAPE_PUNCH: "Punch",
     KNOB_SHAPE_GATE: "Gate",
     BUTTON_SHAPE_HARD_GATE: "Hard Gate",
+    BUTTON_SHAPE_BYPASS: "Shape Bypass",
 
     # EQ Section
     KNOB_EQ1_FREQ: "EQ Band 1 Frequency",
@@ -113,7 +131,16 @@ CONTROL_NAMES = {
     BUTTON_EQ3_Q: "EQ Band 3 Q",
     
     BUTTON_EQ_BYPASS: "EQ Bypass",
+
+    #Compressor
+    BUTTON_COMPRESSOR_BYPASS: "Compressor Bypass",
+    KNOB_COMPRESSOR_THRESHOLD: "Compressor Threshold",
+    KNOB_COMPRESSOR_RATIO: "Compressor Ratio",
+    KNOB_COMPRESSOR_ATTACK: "Compressor Attack",
+    KNOB_COMPRESSOR_RELEASE: "Compressor Release",
+    KNOB_COMPRESSOR_PARALLEL: "Compressor Gain",
     
+    # Track Control
     BUTTON_TRACK_SOLO: "Track Solo",
     BUTTON_TRACK_MUTE: "Track Mute",
     

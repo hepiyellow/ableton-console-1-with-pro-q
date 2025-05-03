@@ -49,7 +49,7 @@ PARAMETER_CC_MAP = {
     "Output Level": {'cc': KNOB_GAIN, 'invert': False},
     
     # Device control
-    "Device On": {'cc': BUTTON_EQ_BYPASS, 'invert': False},  # EQ Bypass button controls Pro-Q3 Device On
+    "Device On": {'cc': DISPLAY_ON, 'invert': False},  # EQ Bypass button controls Pro-Q3 Device On
 }
 
 # Note about hardware controls and mappings:
