@@ -101,8 +101,8 @@ class Console1DeviceControl(ControlSurface):
         self.log_message("Setting up hardware CC-based encoders")
         
         # Create a reverse mapping for CC to parameter name lookup for each device
-        cc_to_proq3_param = {cc: param for param, cc in self._proq3_cc_map.items()}
-        cc_to_api_param = {cc: param for param, cc in self._api_cc_map.items()}
+        cc_to_proq3_param = {config['cc']: param for param, config in self._proq3_cc_map.items()}
+        cc_to_api_param = {config['cc']: param for param, config in self._api_cc_map.items()}
         cc_to_track_param = {cc: param for param, cc in self._track_control_map.items()}
         
         # Store the reverse mappings for later use
@@ -455,17 +455,27 @@ class Console1DeviceControl(ControlSurface):
     def _send_parameter_feedback(self, param_name, param_value, silent=False):
         """Send feedback to the controller with the current parameter value"""
         # Find which CC number controls this parameter in the current device
-        cc_number = None
+        cc_config = None
         
         # Check in the appropriate mapping based on the current device
         if self._resolved_device_type == "Pro-Q 3":
-            cc_number = self._proq3_cc_map.get(param_name)
+            cc_config = self._proq3_cc_map.get(param_name)
         elif self._resolved_device_type == "UADx API Vision Channel Strip":
-            cc_number = self._api_cc_map.get(param_name)
+            cc_config = self._api_cc_map.get(param_name)
         
-        if cc_number is None or cc_number not in self._cc_encoders:
+        if cc_config is None:
             return
+        
+        cc_number = cc_config['cc']
+        invert = cc_config.get('invert', False)
+        
+        # Log inversion status for debugging
+        if "Freq" in param_name and self._resolved_device_type == "UADx API Vision Channel Strip":
+            self.log_message(f"*** FEEDBACK INVERT: {param_name} has invert={invert}, config={cc_config}")
             
+        if cc_number not in self._cc_encoders:
+            return
+        
         try:
             # Prevent feedback loops
             if self._sending_feedback:
@@ -501,18 +511,44 @@ class Console1DeviceControl(ControlSurface):
                 
                 # Map the index to a MIDI value (0-127)
                 # This distributes the indices evenly across the MIDI range
-                midi_value = int((current_index * 127.0) / (num_values - 1)) if num_values > 1 else 0
+                if num_values > 1:
+                    # Calculate normalized index position (0-1 range)
+                    normalized_index = current_index / float(num_values - 1)
+                    
+                    # Apply inversion if needed
+                    if invert:
+                        normalized_index = 1.0 - normalized_index
+                        self.log_message(f"*** DISCRETE FEEDBACK INVERT: {param_name}, Original idx: {current_index}, Normalized: {normalized_index:.3f}")
+                        
+                    # Convert to MIDI value
+                    midi_value = int(normalized_index * 127.0)
+                else:
+                    midi_value = 0
                 
-                self.log_message(f"DISCRETE FEEDBACK: {param_name}, Index: {current_index}, Items: {num_values}, MIDI: {midi_value}")
+                invert_str = " (inverted)" if invert else ""
+                self.log_message(f"DISCRETE FEEDBACK{invert_str}: {param_name}, Index: {current_index}, Items: {num_values}, MIDI: {midi_value}")
             else:
                 # Convert normal parameter value (0.0-1.0) to MIDI value (0-127)
-                midi_value = int(param_value * 127)
+                # Invert the value if needed
+                feedback_value = 1.0 - param_value if invert else param_value
+                midi_value = int(feedback_value * 127)
+                
+                # For all frequency parameters, log feedback values
+                if "Freq" in param_name and self._resolved_device_type == "UADx API Vision Channel Strip":
+                    if invert:
+                        self.log_message(f"*** FEEDBACK INVERSION APPLIED: {param_name}, Original: {param_value:.3f}, Inverted: {feedback_value:.3f}, MIDI: {midi_value}")
+                    else:
+                        self.log_message(f"*** NO FEEDBACK INVERSION: {param_name}, Value: {param_value:.3f}, MIDI: {midi_value}")
+                # For other inverted parameters, add standard logging
+                elif invert:
+                    self.log_message(f"INVERTED FEEDBACK: {param_name}, Original: {param_value:.3f}, Inverted: {feedback_value:.3f}, MIDI: {midi_value}")
             
             # Log message only if not silent and debug logging is enabled
             if not silent and self._debug_logging:
                 from .Console1_Hardware import CONTROL_NAMES
                 control_name = CONTROL_NAMES.get(cc_number, f"CC {cc_number}")
-                self.debug_log(f"Sending feedback for {param_name} via {control_name} (CC {cc_number}), MIDI value: {midi_value}")
+                invert_str = " (inverted)" if invert else ""
+                self.debug_log(f"Sending feedback for {param_name}{invert_str} via {control_name} (CC {cc_number}), MIDI value: {midi_value}")
             
             # Send the value back to the controller
             self._cc_encoders[cc_number].send_value(midi_value)
@@ -1081,6 +1117,19 @@ class Console1DeviceControl(ControlSurface):
             
         param = self._param_refs[param_name]
         
+        # Check if we need to invert this parameter's value
+        invert = False
+        if self._resolved_device_type == "Pro-Q 3" and param_name in self._proq3_cc_map:
+            param_config = self._proq3_cc_map[param_name]
+            invert = param_config.get('invert', False)
+            if "Freq" in param_name:
+                self.log_message(f"*** PRO-Q PARAM INVERT: {param_name} has invert={invert}, config={param_config}")
+        elif self._resolved_device_type == "UADx API Vision Channel Strip" and param_name in self._api_cc_map:
+            param_config = self._api_cc_map[param_name]
+            invert = param_config.get('invert', False)
+            if "Freq" in param_name:
+                self.log_message(f"*** API PARAM INVERT: {param_name} has invert={invert}, config={param_config}")
+        
         # Special handling for shape parameters (3-step toggle buttons) - Pro-Q 3 only
         if "Shape" in param_name and self._resolved_device_type == "Pro-Q 3":
             self._handle_shape_parameter(param_name, value, param)
@@ -1112,6 +1161,11 @@ class Console1DeviceControl(ControlSurface):
             current_value = self._current_param_values[param_name]
             
             # Calculate the new value with the appropriate step size
+            # For inverted parameters, we need to invert the direction
+            if invert:
+                change_direction = -change_direction
+                self.log_message(f"INVERT: Inverting direction for {param_name} to {change_direction}")
+            
             new_value = current_value + (change_direction * self.PARAMETER_STEP_SIZE)
             
             # Clamp to 0.0-1.0 range
@@ -1125,7 +1179,8 @@ class Console1DeviceControl(ControlSurface):
                 self.log_message(f"Q PARAMETER RELATIVE: {param_name}, Dir: {change_direction}, New: {new_value:.3f}")
             
             # Log the change if debug is enabled
-            self.debug_log(f"Encoder {param_name} - Direction: {change_direction}, " + 
+            invert_str = " (inverted)" if invert else ""
+            self.debug_log(f"Encoder {param_name}{invert_str} - Direction: {change_direction}, " + 
                           f"Old value: {current_value:.3f}, New value: {new_value:.3f}")
         else:
             # ------ ABSOLUTE MODE ------
@@ -1133,7 +1188,14 @@ class Console1DeviceControl(ControlSurface):
             self._last_midi_values[param_name] = value
             
             # Scale the encoder value (0-127) to parameter range (0.0-1.0)
-            new_value = value / 127.0
+            # For inverted parameters, invert the MIDI value
+            if invert:
+                new_value = (127 - value) / 127.0
+                self.log_message(f"*** INVERT APPLIED: {param_name} - Value inverted from {value} → {127-value}, resulting in {new_value:.3f}")
+            else:
+                new_value = value / 127.0
+                if "Freq" in param_name and self._resolved_device_type == "UADx API Vision Channel Strip":
+                    self.log_message(f"*** NO INVERT: {param_name} - Value NOT inverted, using {value} → {new_value:.3f}")
             
             # Update our tracking value
             self._current_param_values[param_name] = new_value
@@ -1143,7 +1205,8 @@ class Console1DeviceControl(ControlSurface):
                 self.log_message(f"Q PARAMETER ABSOLUTE: {param_name}, MIDI: {value}, New: {new_value:.3f}")
             
             # Log the change if debug is enabled
-            self.debug_log(f"Encoder {param_name} - Absolute value: {value}, Param value: {new_value:.3f}")
+            invert_str = " (inverted)" if invert else ""
+            self.debug_log(f"Encoder {param_name}{invert_str} - Absolute value: {value}, Param value: {new_value:.3f}")
         
         # Update the parameter in Live
         param.value = new_value
@@ -1155,9 +1218,18 @@ class Console1DeviceControl(ControlSurface):
 
     def _handle_discrete_parameter(self, param_name, value, param):
         """Handle discrete parameters with value_items"""
+        # Get the invert flag for this parameter
+        invert = False
+        if self._resolved_device_type == "Pro-Q 3" and param_name in self._proq3_cc_map:
+            param_config = self._proq3_cc_map[param_name]
+            invert = param_config.get('invert', False)
+        elif self._resolved_device_type == "UADx API Vision Channel Strip" and param_name in self._api_cc_map:
+            param_config = self._api_cc_map[param_name]
+            invert = param_config.get('invert', False)
+        
         # Log the parameter being controlled
         num_values = len(param.value_items)
-        self.log_message(f"DISCRETE PARAMETER: {param_name}, MIDI value: {value}, Items: {num_values}")
+        self.log_message(f"DISCRETE PARAMETER: {param_name}, MIDI value: {value}, Items: {num_values}, Invert: {invert}")
         
         # Store the MIDI value
         self._last_midi_values[param_name] = value
@@ -1173,23 +1245,37 @@ class Console1DeviceControl(ControlSurface):
             # Skip if no change detected
             if change_direction == 0:
                 return
+            
+            # If inverted, reverse the direction
+            if invert:
+                change_direction = -change_direction
+                self.log_message(f"*** DISCRETE INVERT: Reversing direction for {param_name} from {-change_direction} to {change_direction}")
                 
             # Calculate the new index
             new_index = (current_index + change_direction) % num_values
             
             # Log the change
-            self.log_message(f"DISCRETE REL: {param_name}, Current: {current_index} → New: {new_index} (of {num_values})")
+            invert_str = " (inverted)" if invert else ""
+            self.log_message(f"DISCRETE REL{invert_str}: {param_name}, Current: {current_index} → New: {new_index} (of {num_values})")
             
             # Update the parameter with the new index
             param.value = new_index
         else:
             # ------ ABSOLUTE MODE ------
+            # For inverted parameters, invert the MIDI value
+            if invert:
+                # Invert the value (0 becomes 127, 127 becomes 0)
+                inverted_value = 127 - value
+                self.log_message(f"*** DISCRETE INVERT: Inverting MIDI value for {param_name} from {value} to {inverted_value}")
+                value = inverted_value
+                
             # Map the MIDI value (0-127) to an index in the available values
             # This ensures we use the full range of the knob for all possible values
             index = min(int(value * num_values / 128), num_values - 1)
             
             # Log the mapped index
-            self.log_message(f"DISCRETE ABS: {param_name}, MIDI: {value} → Index: {index} (of {num_values})")
+            invert_str = " (inverted)" if invert else ""
+            self.log_message(f"DISCRETE ABS{invert_str}: {param_name}, MIDI: {value} → Index: {index} (of {num_values})")
             
             # Update the parameter in Live
             param.value = index
@@ -1505,14 +1591,20 @@ class Console1DeviceControl(ControlSurface):
             
         # Log mappings for Pro-Q 3
         self.log_message("\nPro-Q 3 Mappings:")
-        for param_name, cc_number in self._proq3_cc_map.items():
+        for param_name, config in self._proq3_cc_map.items():
             if param_name in ["Band 2 Shape", "Band 5 Shape", "Band 2 Q", "Band 5 Q", "Device On"]:
-                self.log_message(f"- {param_name} -> CC {cc_number}")
+                cc_number = config['cc']
+                invert = config.get('invert', False)
+                invert_str = " (INVERTED)" if invert else ""
+                self.log_message(f"- {param_name} -> CC {cc_number}{invert_str}")
                 
         # Log mappings for API Vision
         self.log_message("\nAPI Vision Mappings:")
-        for param_name, cc_number in self._api_cc_map.items():
-            self.log_message(f"- {param_name} -> CC {cc_number}")
+        for param_name, config in self._api_cc_map.items():
+            cc_number = config['cc']
+            invert = config.get('invert', False)
+            invert_str = " (INVERTED)" if invert else ""
+            self.log_message(f"- {param_name} -> CC {cc_number}{invert_str}")
             
         self.log_message("\nMIDI-to-ProQ3 Shape Mappings (Pro-Q 3 only):")
         self.log_message("Band 2:")
@@ -1536,6 +1628,28 @@ class Console1DeviceControl(ControlSurface):
         self.log_message("Track Control Button Mappings:")
         for control_name, cc_number in self._track_control_map.items():
             self.log_message(f"- CC {cc_number} → {control_name}")
+        
+        # Log which parameters have inversion enabled
+        self.log_message("\nParameters with Inversion Enabled:")
+        
+        # Pro-Q 3 inverted parameters
+        proq3_inverted = [param_name for param_name, config in self._proq3_cc_map.items() 
+                         if config.get('invert', False)]
+        if proq3_inverted:
+            self.log_message("Pro-Q 3:")
+            for param in proq3_inverted:
+                self.log_message(f"- {param}")
+        
+        # API Vision inverted parameters
+        api_inverted = [param_name for param_name, config in self._api_cc_map.items() 
+                       if config.get('invert', False)]
+        if api_inverted:
+            self.log_message("API Vision:")
+            for param in api_inverted:
+                self.log_message(f"- {param}")
+        
+        if not proq3_inverted and not api_inverted:
+            self.log_message("No parameters have inversion enabled")
         
         self.log_message("-----------------------------------")
 
