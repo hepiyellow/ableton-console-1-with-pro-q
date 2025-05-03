@@ -9,7 +9,12 @@ from .ProQ3_MIDI_Map import PARAMETER_CC_MAP, MIDI_CHANNEL, ENABLE_DEBUG_LOGGING
 from .Console1_Hardware import SHAPE_SHELF, SHAPE_BELL, SHAPE_CUT, BUTTON_EQ_BYPASS, CONTROL_NAMES
 from .TrackControls_MIDI_Map import TRACK_CONTROL_MAP
 from .APIVision_MIDI_Map import PARAMETER_CC_MAP as API_PARAMETER_CC_MAP
+from .Neve1073_MIDI_Map import PARAMETER_CC_MAP as NEVE_PARAMETER_CC_MAP
 
+# Device type constants
+DEVICE_PRO_Q3 = "Pro-Q 3"
+DEVICE_API_VISION = "UADx API Vision Channel Strip"
+DEVICE_NEVE_1073 = "UADx Neve 1073 Preamp and EQ"
 
 class Console1DeviceControl(ControlSurface):
     __doc__ = " Console1DeviceControl script that controls Pro-Q 3 and other device parameters with encoders "
@@ -17,7 +22,7 @@ class Console1DeviceControl(ControlSurface):
     _active_instances = []
     
     # Supported devices in order of priority
-    DEVICE_ORDER = ["Pro-Q 3", "UADx API Vision Channel Strip"]
+    DEVICE_ORDER = [DEVICE_PRO_Q3, DEVICE_API_VISION, DEVICE_NEVE_1073]
     
     # Mode settings
     EMULATE_RELATIVE_MODE = False  # False = absolute mode (0-127), True = relative mode (fixed steps)
@@ -47,7 +52,34 @@ class Console1DeviceControl(ControlSurface):
         # Get parameter CC maps from the imported mapping files
         self._proq3_cc_map = PARAMETER_CC_MAP
         self._api_cc_map = API_PARAMETER_CC_MAP
+        self._neve_cc_map = NEVE_PARAMETER_CC_MAP
         self._track_control_map = TRACK_CONTROL_MAP
+        
+        # Create mapping of device types to parameter maps
+        self._device_param_maps = {
+            DEVICE_PRO_Q3: self._proq3_cc_map,
+            DEVICE_API_VISION: self._api_cc_map,
+            DEVICE_NEVE_1073: self._neve_cc_map
+        }
+        
+        # Create reverse mappings for CC to parameter name lookup for each device
+        cc_to_proq3_param = {config['cc']: param for param, config in self._proq3_cc_map.items()}
+        cc_to_api_param = {config['cc']: param for param, config in self._api_cc_map.items()}
+        cc_to_neve_param = {config['cc']: param for param, config in self._neve_cc_map.items()}
+        cc_to_track_param = {cc: param for param, cc in self._track_control_map.items()}
+        
+        # Store the reverse mappings for later use
+        self._cc_to_proq3_param = cc_to_proq3_param
+        self._cc_to_api_param = cc_to_api_param
+        self._cc_to_neve_param = cc_to_neve_param
+        self._cc_to_track_param = cc_to_track_param
+        
+        # Create mapping of device types to CC-to-parameter maps
+        self._device_cc_to_param_maps = {
+            DEVICE_PRO_Q3: self._cc_to_proq3_param,
+            DEVICE_API_VISION: self._cc_to_api_param,
+            DEVICE_NEVE_1073: self._cc_to_neve_param
+        }
         
         # Initially use Pro-Q 3 mapping as default
         self._param_cc_map = self._proq3_cc_map
@@ -100,18 +132,8 @@ class Console1DeviceControl(ControlSurface):
         
         self.log_message("Setting up hardware CC-based encoders")
         
-        # Create a reverse mapping for CC to parameter name lookup for each device
-        cc_to_proq3_param = {config['cc']: param for param, config in self._proq3_cc_map.items()}
-        cc_to_api_param = {config['cc']: param for param, config in self._api_cc_map.items()}
-        cc_to_track_param = {cc: param for param, cc in self._track_control_map.items()}
-        
-        # Store the reverse mappings for later use
-        self._cc_to_proq3_param = cc_to_proq3_param
-        self._cc_to_api_param = cc_to_api_param
-        self._cc_to_track_param = cc_to_track_param
-        
         # Log mappings for debugging - can be removed in production
-        for cc, param in cc_to_proq3_param.items():
+        for cc, param in self._cc_to_proq3_param.items():
             control_name = CONTROL_NAMES.get(cc, f"CC {cc}")
             self.debug_log(f"Pro-Q 3: {control_name} (CC {cc}) -> {param}")
         
@@ -179,11 +201,15 @@ class Console1DeviceControl(ControlSurface):
             self.debug_log(f"No device resolved, ignoring CC {cc_number}")
             return
             
-        # Check the resolved device's mapping
-        if self._resolved_device_type == "Pro-Q 3" and cc_number in self._cc_to_proq3_param:
-            param_name = self._cc_to_proq3_param[cc_number]
-        elif self._resolved_device_type == "UADx API Vision Channel Strip" and cc_number in self._cc_to_api_param:
-            param_name = self._cc_to_api_param[cc_number]
+        # Check the resolved device's mapping using the dictionary
+        if self._resolved_device_type in self._device_cc_to_param_maps:
+            cc_to_param_map = self._device_cc_to_param_maps[self._resolved_device_type]
+            if cc_number in cc_to_param_map:
+                param_name = cc_to_param_map[cc_number]
+            else:
+                param_name = None
+        else:
+            param_name = None
         
         # If we found a parameter, handle it
         if param_name:
@@ -203,21 +229,8 @@ class Console1DeviceControl(ControlSurface):
             else:
                 self.debug_log(f"Parameter {param_name} not found in current device")
         else:
-            # Check if this CC maps to a parameter in a different device for better feedback
-            other_param_name = None
-            other_device_name = None
-            
-            if self._resolved_device_type != "Pro-Q 3" and cc_number in self._cc_to_proq3_param:
-                other_param_name = self._cc_to_proq3_param[cc_number]
-                other_device_name = "Pro-Q 3"
-            elif self._resolved_device_type != "UADx API Vision Channel Strip" and cc_number in self._cc_to_api_param:
-                other_param_name = self._cc_to_api_param[cc_number]
-                other_device_name = "UADx API Vision Channel Strip"
-                
-            if other_param_name:
-                self.log_message(f"CC {cc_number} controls '{other_param_name}' in {other_device_name}, not available in {self._resolved_device_type}")
-            else:
-                self.debug_log(f"CC {cc_number} not mapped to any parameter in current device")
+            # This CC doesn't map to any parameter in the current device
+            self.debug_log(f"CC {cc_number} not mapped to any parameter in {self._resolved_device_type}")
                 
         # Store the last received value for this CC
         self._last_cc_values[cc_number] = value
@@ -458,10 +471,8 @@ class Console1DeviceControl(ControlSurface):
         cc_config = None
         
         # Check in the appropriate mapping based on the current device
-        if self._resolved_device_type == "Pro-Q 3":
-            cc_config = self._proq3_cc_map.get(param_name)
-        elif self._resolved_device_type == "UADx API Vision Channel Strip":
-            cc_config = self._api_cc_map.get(param_name)
+        if self._resolved_device_type in self._device_param_maps:
+            cc_config = self._device_param_maps[self._resolved_device_type].get(param_name)
         
         if cc_config is None:
             return
@@ -470,9 +481,9 @@ class Console1DeviceControl(ControlSurface):
         invert = cc_config.get('invert', False)
         
         # Log inversion status for debugging
-        if "Freq" in param_name and self._resolved_device_type == "UADx API Vision Channel Strip":
+        if "Freq" in param_name and self._resolved_device_type == DEVICE_API_VISION:
             self.log_message(f"*** FEEDBACK INVERT: {param_name} has invert={invert}, config={cc_config}")
-            
+        
         if cc_number not in self._cc_encoders:
             return
         
@@ -950,6 +961,20 @@ class Console1DeviceControl(ControlSurface):
         except Exception as e:
             self.log_message(f"Error in parameter value change handler: {str(e)}")
 
+    def _log_devices_in_rack(self, rack_device, indent=0):
+        """Log the devices nested inside a rack with proper indentation"""
+        indent_str = "  " * indent  # Two spaces per level
+        
+        for chain_index, chain in enumerate(rack_device.chains):
+            self.log_message(f"{indent_str}Chain {chain_index+1}:")
+            
+            for device_index, device in enumerate(chain.devices):
+                self.log_message(f"{indent_str}  Device {device_index+1}: {device.name}")
+                
+                # Recursive logging for nested racks
+                if hasattr(device, 'chains') and len(device.chains) > 0:
+                    self._log_devices_in_rack(device, indent=indent+2)
+    
     def _on_selected_track_changed(self):
         """Called when the selected track changes in Live"""
         self.log_message("Track selection changed")
@@ -968,7 +993,20 @@ class Console1DeviceControl(ControlSurface):
         try:
             track = self.song().view.selected_track
             self._current_track = track
-            self.debug_log("Selected track:", track.name)
+            self.log_message(f"Selected track: {track.name}")
+            
+            # Log all devices on the track
+            self.log_message("=== DEVICES ON TRACK ===")
+            if hasattr(track, 'devices') and len(track.devices) > 0:
+                for i, device in enumerate(track.devices):
+                    self.log_message(f"Device {i+1}: {device.name}")
+                    
+                    # Also log devices in racks
+                    if hasattr(device, 'chains') and len(device.chains) > 0:
+                        self._log_devices_in_rack(device, indent=1)
+            else:
+                self.log_message("No devices on this track")
+            self.log_message("==========================")
             
             # Set up volume parameter for the new track
             self._setup_track_volume(track)
@@ -1026,12 +1064,13 @@ class Console1DeviceControl(ControlSurface):
             self.debug_log(f"Setting up parameters for {device_type}")
             
             # Use the appropriate parameter map based on device type
-            if device_type == "UADx API Vision Channel Strip":
-                self._param_cc_map = self._api_cc_map
-                self.log_message("Using API Vision MIDI mapping")
-            else:  # default to Pro-Q 3
+            if device_type in self._device_param_maps:
+                self._param_cc_map = self._device_param_maps[device_type]
+                self.log_message(f"Using {device_type} MIDI mapping")
+            else:
+                # Default to Pro-Q 3 if device type is not recognized
                 self._param_cc_map = self._proq3_cc_map
-                self.log_message("Using Pro-Q 3 MIDI mapping")
+                self.log_message(f"Device {device_type} not recognized, using {DEVICE_PRO_Q3} MIDI mapping as default")
             
             # Find all device parameters we need
             for param_name in self._param_cc_map.keys():
@@ -1119,19 +1158,18 @@ class Console1DeviceControl(ControlSurface):
         
         # Check if we need to invert this parameter's value
         invert = False
-        if self._resolved_device_type == "Pro-Q 3" and param_name in self._proq3_cc_map:
-            param_config = self._proq3_cc_map[param_name]
-            invert = param_config.get('invert', False)
-            if "Freq" in param_name:
-                self.log_message(f"*** PRO-Q PARAM INVERT: {param_name} has invert={invert}, config={param_config}")
-        elif self._resolved_device_type == "UADx API Vision Channel Strip" and param_name in self._api_cc_map:
-            param_config = self._api_cc_map[param_name]
-            invert = param_config.get('invert', False)
-            if "Freq" in param_name:
-                self.log_message(f"*** API PARAM INVERT: {param_name} has invert={invert}, config={param_config}")
+        param_config = None
+        
+        if self._resolved_device_type in self._device_param_maps:
+            device_param_map = self._device_param_maps[self._resolved_device_type]
+            param_config = device_param_map.get(param_name)
+            if param_config:
+                invert = param_config.get('invert', False)
+                if "Freq" in param_name:
+                    self.log_message(f"*** PARAM INVERT: {param_name} has invert={invert}, config={param_config}")
         
         # Special handling for shape parameters (3-step toggle buttons) - Pro-Q 3 only
-        if "Shape" in param_name and self._resolved_device_type == "Pro-Q 3":
+        if "Shape" in param_name and self._resolved_device_type == DEVICE_PRO_Q3:
             self._handle_shape_parameter(param_name, value, param)
             return
         
@@ -1194,14 +1232,14 @@ class Console1DeviceControl(ControlSurface):
                 self.log_message(f"*** INVERT APPLIED: {param_name} - Value inverted from {value} → {127-value}, resulting in {new_value:.3f}")
             else:
                 new_value = value / 127.0
-                if "Freq" in param_name and self._resolved_device_type == "UADx API Vision Channel Strip":
+                if "Freq" in param_name and self._resolved_device_type == DEVICE_API_VISION:
                     self.log_message(f"*** NO INVERT: {param_name} - Value NOT inverted, using {value} → {new_value:.3f}")
             
             # Update our tracking value
             self._current_param_values[param_name] = new_value
             
             # Extra logging for Q parameters in Pro-Q 3
-            if "Q" in param_name and self._resolved_device_type == "Pro-Q 3":
+            if "Q" in param_name and self._resolved_device_type == DEVICE_PRO_Q3:
                 self.log_message(f"Q PARAMETER ABSOLUTE: {param_name}, MIDI: {value}, New: {new_value:.3f}")
             
             # Log the change if debug is enabled
@@ -1212,7 +1250,7 @@ class Console1DeviceControl(ControlSurface):
         param.value = new_value
         
         # Extra verification for Q parameters in Pro-Q 3
-        if "Q" in param_name and self._resolved_device_type == "Pro-Q 3":
+        if "Q" in param_name and self._resolved_device_type == DEVICE_PRO_Q3:
             actual_value = param.value
             self.log_message(f"Q PARAMETER FINAL: {param_name}, Final value: {actual_value:.3f}")
 
@@ -1220,12 +1258,12 @@ class Console1DeviceControl(ControlSurface):
         """Handle discrete parameters with value_items"""
         # Get the invert flag for this parameter
         invert = False
-        if self._resolved_device_type == "Pro-Q 3" and param_name in self._proq3_cc_map:
-            param_config = self._proq3_cc_map[param_name]
-            invert = param_config.get('invert', False)
-        elif self._resolved_device_type == "UADx API Vision Channel Strip" and param_name in self._api_cc_map:
-            param_config = self._api_cc_map[param_name]
-            invert = param_config.get('invert', False)
+        
+        if self._resolved_device_type in self._device_param_maps:
+            device_param_map = self._device_param_maps[self._resolved_device_type]
+            param_config = device_param_map.get(param_name)
+            if param_config:
+                invert = param_config.get('invert', False)
         
         # Log the parameter being controlled
         num_values = len(param.value_items)
@@ -1629,6 +1667,14 @@ class Console1DeviceControl(ControlSurface):
         for control_name, cc_number in self._track_control_map.items():
             self.log_message(f"- CC {cc_number} → {control_name}")
         
+        # Log mappings for Neve 1073
+        self.log_message("\nNeve 1073 Mappings:")
+        for param_name, config in self._neve_cc_map.items():
+            cc_number = config['cc']
+            invert = config.get('invert', False)
+            invert_str = " (INVERTED)" if invert else ""
+            self.log_message(f"- {param_name} -> CC {cc_number}{invert_str}")
+            
         # Log which parameters have inversion enabled
         self.log_message("\nParameters with Inversion Enabled:")
         
@@ -1647,8 +1693,16 @@ class Console1DeviceControl(ControlSurface):
             self.log_message("API Vision:")
             for param in api_inverted:
                 self.log_message(f"- {param}")
+                
+        # Neve 1073 inverted parameters
+        neve_inverted = [param_name for param_name, config in self._neve_cc_map.items() 
+                        if config.get('invert', False)]
+        if neve_inverted:
+            self.log_message("Neve 1073:")
+            for param in neve_inverted:
+                self.log_message(f"- {param}")
         
-        if not proq3_inverted and not api_inverted:
+        if not proq3_inverted and not api_inverted and not neve_inverted:
             self.log_message("No parameters have inversion enabled")
         
         self.log_message("-----------------------------------")
